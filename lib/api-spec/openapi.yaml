@@ -1,15 +1,18 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Academic Performance Analyzer API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: analysis
+    description: Exam analysis operations
+  - name: auth
+    description: Authentication operations
 paths:
   /healthz:
     get:
@@ -24,6 +27,174 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /analysis/upload:
+    post:
+      operationId: uploadFile
+      tags: [analysis]
+      summary: Upload Excel file and get analysis results
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                passPercentage:
+                  type: number
+                  description: Default pass percentage threshold
+              required:
+                - file
+      responses:
+        "200":
+          description: Analysis results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisResponse"
+        "400":
+          description: Invalid file or data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /analysis/export/excel:
+    post:
+      operationId: exportExcel
+      tags: [analysis]
+      summary: Export analysis results as Excel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: Excel file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /analysis/export/pdf:
+    post:
+      operationId: exportPdf
+      tags: [analysis]
+      summary: Export analysis results as PDF
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /analysis/export/markdown:
+    post:
+      operationId: exportMarkdown
+      tags: [analysis]
+      summary: Export analysis report as Markdown
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: Markdown file
+          content:
+            text/markdown:
+              schema:
+                type: string
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +205,240 @@ components:
       required:
         - status
 
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        username:
+          type: string
+      required:
+        - success
+        - username
+
+    UserResponse:
+      type: object
+      properties:
+        username:
+          type: string
+        authenticated:
+          type: boolean
+      required:
+        - username
+        - authenticated
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required:
+        - success
+
+    SubjectStats:
+      type: object
+      properties:
+        passedCount:
+          type: integer
+        failedCount:
+          type: integer
+        totalCount:
+          type: integer
+        passRate:
+          type: number
+        failRate:
+          type: number
+        averageScore:
+          type: number
+        highestScore:
+          type: number
+        lowestScore:
+          type: number
+        topper:
+          type: object
+          properties:
+            name:
+              type: string
+            score:
+              type: number
+          required:
+            - name
+            - score
+      required:
+        - passedCount
+        - failedCount
+        - totalCount
+        - passRate
+        - failRate
+        - averageScore
+        - highestScore
+        - lowestScore
+        - topper
+
+    StudentRecord:
+      type: object
+      additionalProperties: true
+      properties:
+        studentId:
+          type: string
+        studentName:
+          type: string
+
+    TopStudent:
+      type: object
+      properties:
+        name:
+          type: string
+        average:
+          type: number
+        totalSubjects:
+          type: integer
+      required:
+        - name
+        - average
+        - totalSubjects
+
+    Anomaly:
+      type: object
+      properties:
+        type:
+          type: string
+        subject:
+          type: string
+        description:
+          type: string
+        count:
+          type: number
+        passRate:
+          type: number
+      required:
+        - type
+        - description
+
+    AnalysisResult:
+      type: object
+      properties:
+        totalStudents:
+          type: integer
+        totalSubjects:
+          type: integer
+        subjectWiseStats:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/SubjectStats"
+        departmentPassRate:
+          type: number
+        overallTopStudent:
+          $ref: "#/components/schemas/TopStudent"
+        topStudents:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopStudent"
+        studentsPassedAll:
+          type: integer
+        studentsFailedAny:
+          type: integer
+        averageScore:
+          type: number
+        anomalies:
+          type: array
+          items:
+            $ref: "#/components/schemas/Anomaly"
+        passPercentage:
+          type: number
+        subjects:
+          type: array
+          items:
+            type: string
+      required:
+        - totalStudents
+        - totalSubjects
+        - subjectWiseStats
+        - departmentPassRate
+        - topStudents
+        - studentsPassedAll
+        - studentsFailedAny
+        - averageScore
+        - anomalies
+        - passPercentage
+        - subjects
+
+    ValidationResult:
+      type: object
+      properties:
+        isValid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+      required:
+        - isValid
+        - errors
+        - warnings
+
+    AnalysisResponse:
+      type: object
+      properties:
+        validation:
+          $ref: "#/components/schemas/ValidationResult"
+        analysis:
+          $ref: "#/components/schemas/AnalysisResult"
+        rawData:
+          type: array
+          items:
+            $ref: "#/components/schemas/StudentRecord"
+        columns:
+          type: array
+          items:
+            type: string
+        subjectColumns:
+          type: array
+          items:
+            type: string
+      required:
+        - validation
+        - columns
+        - subjectColumns
+
+    ExportRequest:
+      type: object
+      properties:
+        analysisData:
+          $ref: "#/components/schemas/AnalysisResult"
+        showStudentIds:
+          type: boolean
+        rawData:
+          type: array
+          items:
+            $ref: "#/components/schemas/StudentRecord"
+        subjectColumns:
+          type: array
+          items:
+            type: string
+      required:
+        - analysisData
+        - showStudentIds

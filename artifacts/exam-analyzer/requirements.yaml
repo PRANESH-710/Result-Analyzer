@@ -1,0 +1,24 @@
+packages:
+  "recharts": "Powerful charting library for dashboard visualizations"
+  "react-dropzone": "Drag and drop file upload for Excel files"
+  "framer-motion": "Animations and layout transitions"
+  "zustand": "Lightweight global state management"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility to cleanly merge Tailwind CSS classes"
+  "@radix-ui/react-slot": "Required for shadcn components"
+  "@radix-ui/react-toast": "Required for shadcn toast notifications"
+  "@radix-ui/react-tooltip": "Required for shadcn tooltips"
+  "@radix-ui/react-tabs": "Required for dashboard tabs"
+  "@radix-ui/react-label": "Required for form labels"
+  "@radix-ui/react-slider": "Required for settings sliders"
+  "@radix-ui/react-switch": "Required for settings toggles"
+  "lucide-react": "Beautiful vector icons"
+
+images:
+  - path: "artifacts/exam-analyzer/public/images/auth-bg.png"
+    description: "Dark, abstract geometric mesh with deep navy and indigo glowing gradients, professional academic tech style"
+    aspect_ratio: "16:9"
+
+notes:
+  - "The app relies on @workspace/api-client-react for TanStack Query hooks"
+  - "Zustand is used to persist analysis data after upload without refetching"
