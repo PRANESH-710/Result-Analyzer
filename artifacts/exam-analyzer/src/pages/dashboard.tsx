@@ -7,10 +7,11 @@ import {
 } from "recharts";
 import { 
   LogOut, UploadCloud, Settings2, FileSpreadsheet, Download, FileText, LayoutDashboard,
-  Users, Trophy, Table as TableIcon, ActivitySquare, ShieldAlert, Menu, X
+  Users, Trophy, Table as TableIcon, ActivitySquare, ShieldAlert, Menu, X, History, Trash2
 } from "lucide-react";
 import { getGetMeQueryKey, useGetMe, useLogout, useUploadFile } from "@workspace/api-client-react";
 import { useAppStore } from "@/store/use-app-store";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -37,8 +38,19 @@ function buildSubjectPassPercentageMap(
   );
 }
 
+function formatHistoryTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown time";
+  }
+
+  return date.toLocaleString();
+}
+
 export default function Dashboard() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const { data: user, isLoading: isAuthLoading, isError: authError } = useGetMe({
     query: { queryKey: getGetMeQueryKey(), retry: false }
   });
@@ -60,6 +72,13 @@ export default function Dashboard() {
     setShowStudentIds,
     analysisData,
     setAnalysisData,
+    analysisHistory,
+    activeHistoryId,
+    addAnalysisToHistory,
+    updateActiveHistory,
+    loadAnalysisFromHistory,
+    removeAnalysisFromHistory,
+    clearAnalysisHistory,
   } = useAppStore();
   
   const uploadMutation = useUploadFile();
@@ -89,13 +108,54 @@ export default function Dashboard() {
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      uploadMutation.mutate({ data: { file: acceptedFiles[0], passPercentage } }, {
+      const file = acceptedFiles[0];
+
+      uploadMutation.mutate({ data: { file, passPercentage } }, {
         onSuccess: (res) => {
           setAnalysisData(res);
+
+          const nextPassPercentage = res.analysis?.passPercentage ?? passPercentage;
+          const nextSubjectThresholds = buildSubjectPassPercentageMap(
+            res.subjectColumns ?? [],
+            nextPassPercentage,
+            res.analysis?.subjectPassPercentages,
+          );
+
+          addAnalysisToHistory({
+            name: file.name,
+            analysisData: res,
+            passPercentage: nextPassPercentage,
+            subjectPassPercentages: nextSubjectThresholds,
+          });
+
+          toast({
+            title: "Saved to Result History",
+            description: file.name,
+          });
         }
       });
     }
-  }, [passPercentage, uploadMutation, setAnalysisData]);
+  }, [passPercentage, uploadMutation, setAnalysisData, addAnalysisToHistory, toast]);
+
+  const handleLoadHistory = (id: string) => {
+    const item = loadAnalysisFromHistory(id);
+
+    if (!item) {
+      toast({
+        title: "History not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setActiveTab("executive");
+    setMobileControlsOpen(false);
+
+    toast({
+      title: "History loaded",
+      description: item.name,
+    });
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -124,13 +184,18 @@ export default function Dashboard() {
       return;
     }
 
-    setAnalysisData(
-      reanalyzeAnalysisResponse(
-        analysisData,
-        passPercentage,
-        subjectPassPercentages,
-      ),
+    const nextAnalysisData = reanalyzeAnalysisResponse(
+      analysisData,
+      passPercentage,
+      subjectPassPercentages,
     );
+
+    setAnalysisData(nextAnalysisData);
+    updateActiveHistory({
+      analysisData: nextAnalysisData,
+      passPercentage,
+      subjectPassPercentages,
+    });
   };
 
   const resetSubjectThresholds = () => {
@@ -149,9 +214,18 @@ export default function Dashboard() {
       return;
     }
 
-    setAnalysisData(
-      reanalyzeAnalysisResponse(analysisData, passPercentage, resetMap),
+    const nextAnalysisData = reanalyzeAnalysisResponse(
+      analysisData,
+      passPercentage,
+      resetMap,
     );
+
+    setAnalysisData(nextAnalysisData);
+    updateActiveHistory({
+      analysisData: nextAnalysisData,
+      passPercentage,
+      subjectPassPercentages: resetMap,
+    });
   };
 
   const isBusy = uploadMutation.isPending;
@@ -220,6 +294,73 @@ export default function Dashboard() {
                 <ShieldAlert className="w-4 h-4" /> Data Loaded
               </div>
             )}
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider flex items-center gap-2">
+                  <History className="w-4 h-4" /> Result History
+                </h4>
+                {analysisHistory.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    onClick={() => {
+                      clearAnalysisHistory();
+                      toast({ title: "Result history cleared" });
+                    }}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+
+              {analysisHistory.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No saved results yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {analysisHistory.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`rounded-lg border p-2.5 transition-colors ${
+                        activeHistoryId === item.id
+                          ? "border-primary/60 bg-primary/10"
+                          : "border-sidebar-border bg-sidebar-accent/40"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => handleLoadHistory(item.id)}
+                      >
+                        <p className="text-sm font-medium truncate">{item.name}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{formatHistoryTime(item.createdAt)}</p>
+                      </button>
+
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <p className="text-[11px] text-muted-foreground">
+                          Pass {formatDecimals(item.passPercentage, 0)}%
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => {
+                            removeAnalysisFromHistory(item.id);
+                            toast({ title: "Removed from history" });
+                          }}
+                          title="Delete history item"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="space-y-6">
@@ -248,14 +389,19 @@ export default function Dashboard() {
                     analysisData.subjectColumns,
                     nextPassPercentage,
                   );
-                  setSubjectPassPercentages(nextThresholds);
-                  setAnalysisData(
-                    reanalyzeAnalysisResponse(
-                      analysisData,
-                      nextPassPercentage,
-                      nextThresholds,
-                    ),
+                  const nextAnalysisData = reanalyzeAnalysisResponse(
+                    analysisData,
+                    nextPassPercentage,
+                    nextThresholds,
                   );
+
+                  setSubjectPassPercentages(nextThresholds);
+                  setAnalysisData(nextAnalysisData);
+                  updateActiveHistory({
+                    analysisData: nextAnalysisData,
+                    passPercentage: nextPassPercentage,
+                    subjectPassPercentages: nextThresholds,
+                  });
                 }}
                 className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
               />
