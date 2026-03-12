@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "Academic Performance Analyzer"
+title = "Result Analyzer"
 version = "1.0.0"
 id = "artifacts/exam-analyzer"
 router = "path"

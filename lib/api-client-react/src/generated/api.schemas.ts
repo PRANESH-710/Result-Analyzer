@@ -41,6 +41,7 @@ export interface SubjectStats {
   passedCount: number;
   failedCount: number;
   totalCount: number;
+  passPercentageUsed: number;
   passRate: number;
   failRate: number;
   averageScore: number;
@@ -75,6 +76,7 @@ export interface AnalysisResult {
   totalStudents: number;
   totalSubjects: number;
   subjectWiseStats: AnalysisResultSubjectWiseStats;
+  subjectPassPercentages: { [key: string]: number };
   departmentPassRate: number;
   overallTopStudent?: TopStudent;
   topStudents: TopStudent[];
@@ -100,6 +102,13 @@ export interface AnalysisResponse {
   subjectColumns: string[];
 }
 
+export interface ReanalyzeRequest {
+  rawData: StudentRecord[];
+  columns: string[];
+  passPercentage?: number;
+  subjectPassPercentages?: { [key: string]: number };
+}
+
 export interface ExportRequest {
   analysisData: AnalysisResult;
   showStudentIds: boolean;
@@ -111,4 +120,5 @@ export type UploadFileBody = {
   file: Blob;
   /** Default pass percentage threshold */
   passPercentage?: number;
+  subjectPassPercentages?: { [key: string]: number };
 };

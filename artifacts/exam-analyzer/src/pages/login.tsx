@@ -19,7 +19,12 @@ export default function Login() {
         setLocation("/");
       },
       onError: (err: any) => {
-        setError(err?.response?.data?.error || "Invalid credentials");
+        setError(
+          err?.data?.error ||
+            err?.response?.data?.error ||
+            err?.message ||
+            "Invalid credentials",
+        );
       }
     }
   });
@@ -27,11 +32,16 @@ export default function Login() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!username || !password) {
+    const normalizedUsername = username.trim();
+    const normalizedPassword = password.trim();
+
+    if (!normalizedUsername || !normalizedPassword) {
       setError("Please enter both username and password");
       return;
     }
-    loginMutation.mutate({ data: { username, password } });
+    loginMutation.mutate({
+      data: { username: normalizedUsername, password: normalizedPassword },
+    });
   };
 
   return (
@@ -57,7 +67,7 @@ export default function Login() {
             <div className="p-3 rounded-2xl bg-primary/20 ring-1 ring-primary/30">
               <Activity className="w-8 h-8" />
             </div>
-            <h1 className="text-3xl font-display font-bold text-foreground">ExamAnalyzer</h1>
+            <h1 className="text-3xl font-display font-bold text-foreground">Result Analyzer</h1>
           </motion.div>
           
           <motion.h2 
@@ -66,7 +76,7 @@ export default function Login() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="text-4xl lg:text-5xl font-bold mb-6 text-foreground leading-tight"
           >
-            Academic Performance <br />
+            Result Analysis <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">
               Visualized & Simplified.
             </span>
@@ -86,7 +96,7 @@ export default function Login() {
       </div>
 
       {/* Right side login form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-6 lg:p-8 relative">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent opacity-50" />
         
         <motion.div
@@ -95,16 +105,16 @@ export default function Login() {
           transition={{ duration: 0.4 }}
           className="w-full max-w-md relative z-10"
         >
-          <div className="lg:hidden flex items-center gap-3 justify-center mb-8">
-            <Activity className="w-8 h-8 text-primary" />
-            <h1 className="text-3xl font-display font-bold">ExamAnalyzer</h1>
+          <div className="lg:hidden flex items-center gap-2 sm:gap-3 justify-center mb-6 sm:mb-8">
+            <Activity className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
+            <h1 className="text-2xl sm:text-3xl font-display font-bold">Result Analyzer</h1>
           </div>
 
           <Card className="border-border/50 bg-card/60 backdrop-blur-xl">
-            <CardHeader className="space-y-2 pb-8">
-              <CardTitle className="text-2xl text-center">Welcome Back</CardTitle>
-              <CardDescription className="text-center text-base">
-                Sign in to analyze academic performance
+            <CardHeader className="space-y-2 pb-6 sm:pb-8">
+              <CardTitle className="text-xl sm:text-2xl text-center">Welcome Back</CardTitle>
+              <CardDescription className="text-center text-sm sm:text-base">
+                Sign in to analyze student results
               </CardDescription>
             </CardHeader>
             <CardContent>

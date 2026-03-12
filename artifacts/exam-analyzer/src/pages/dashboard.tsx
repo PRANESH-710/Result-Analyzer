@@ -7,14 +7,16 @@ import {
 } from "recharts";
 import { 
   LogOut, UploadCloud, Settings2, FileSpreadsheet, Download, FileText, LayoutDashboard,
-  Users, Trophy, Table as TableIcon, ActivitySquare, ShieldAlert
+  Users, Trophy, Table as TableIcon, ActivitySquare, ShieldAlert, Menu, X
 } from "lucide-react";
-import { useGetMe, useLogout, useUploadFile, useExportExcel, useExportMarkdown, useExportPdf } from "@workspace/api-client-react";
+import { getGetMeQueryKey, useGetMe, useLogout, useUploadFile } from "@workspace/api-client-react";
 import { useAppStore } from "@/store/use-app-store";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatDecimals, getGradeColor, getHeatmapColor } from "@/lib/utils";
+import { reanalyzeAnalysisResponse } from "@/lib/analysis";
+import { formatDecimals } from "@/lib/utils";
 
 // --- Sub Components ---
 import { ExecutiveSummary } from "./dashboard-tabs/executive-summary";
@@ -25,10 +27,20 @@ import { DataPreview } from "./dashboard-tabs/data-preview";
 import { AdvancedCharts } from "./dashboard-tabs/advanced-charts";
 import { Reports } from "./dashboard-tabs/reports";
 
+function buildSubjectPassPercentageMap(
+  subjectColumns: string[],
+  fallback: number,
+  overrides?: Record<string, number>,
+) {
+  return Object.fromEntries(
+    subjectColumns.map((subject) => [subject, overrides?.[subject] ?? fallback]),
+  );
+}
+
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { data: user, isLoading: isAuthLoading, isError: authError } = useGetMe({
-    query: { retry: false }
+    query: { queryKey: getGetMeQueryKey(), retry: false }
   });
   
   const logoutMutation = useLogout({
@@ -37,16 +49,43 @@ export default function Dashboard() {
     }
   });
 
-  const { passPercentage, setPassPercentage, decimals, setDecimals, showStudentIds, setShowStudentIds, analysisData, setAnalysisData } = useAppStore();
+  const {
+    passPercentage,
+    setPassPercentage,
+    subjectPassPercentages,
+    setSubjectPassPercentages,
+    decimals,
+    setDecimals,
+    showStudentIds,
+    setShowStudentIds,
+    analysisData,
+    setAnalysisData,
+  } = useAppStore();
   
   const uploadMutation = useUploadFile();
   const [activeTab, setActiveTab] = useState("executive");
+  const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
 
   useEffect(() => {
     if (authError || (user && !user.authenticated)) {
       setLocation("/login");
     }
   }, [user, authError, setLocation]);
+
+  useEffect(() => {
+    if (!analysisData?.analysis || analysisData.subjectColumns.length === 0) {
+      setSubjectPassPercentages({});
+      return;
+    }
+
+    setSubjectPassPercentages(
+      buildSubjectPassPercentageMap(
+        analysisData.subjectColumns,
+        analysisData.analysis.passPercentage,
+        analysisData.analysis.subjectPassPercentages,
+      ),
+    );
+  }, [analysisData, setSubjectPassPercentages]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -67,6 +106,56 @@ export default function Dashboard() {
     maxFiles: 1
   });
 
+  const handleSubjectThresholdChange = (subject: string, value: string) => {
+    const nextValue = Number(value);
+
+    if (Number.isNaN(nextValue)) {
+      return;
+    }
+
+    setSubjectPassPercentages({
+      ...subjectPassPercentages,
+      [subject]: Math.max(0, Math.min(100, nextValue)),
+    });
+  };
+
+  const applySubjectThresholds = () => {
+    if (!analysisData) {
+      return;
+    }
+
+    setAnalysisData(
+      reanalyzeAnalysisResponse(
+        analysisData,
+        passPercentage,
+        subjectPassPercentages,
+      ),
+    );
+  };
+
+  const resetSubjectThresholds = () => {
+    if (!analysisData?.subjectColumns?.length) {
+      return;
+    }
+
+    const resetMap = buildSubjectPassPercentageMap(
+      analysisData.subjectColumns,
+      passPercentage,
+    );
+
+    setSubjectPassPercentages(resetMap);
+
+    if (!analysisData) {
+      return;
+    }
+
+    setAnalysisData(
+      reanalyzeAnalysisResponse(analysisData, passPercentage, resetMap),
+    );
+  };
+
+  const isBusy = uploadMutation.isPending;
+
   if (isAuthLoading) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-background">
@@ -81,17 +170,30 @@ export default function Dashboard() {
   if (!user?.authenticated) return null;
 
   return (
-    <div className="min-h-screen flex w-full bg-background overflow-hidden text-foreground">
+    <div className="min-h-screen flex flex-col lg:flex-row w-full bg-background overflow-hidden text-foreground">
       {/* Sidebar */}
-      <aside className="w-80 bg-sidebar border-r border-sidebar-border flex flex-col h-screen shrink-0">
-        <div className="p-6 border-b border-sidebar-border flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-primary/20 text-primary ring-1 ring-primary/30">
-            <ActivitySquare className="w-6 h-6" />
+      <aside className="w-full lg:w-80 bg-sidebar border-b lg:border-b-0 lg:border-r border-sidebar-border flex flex-col lg:h-screen shrink-0">
+        <div className="p-4 sm:p-6 border-b border-sidebar-border flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 rounded-xl bg-primary/20 text-primary ring-1 ring-primary/30">
+              <ActivitySquare className="w-6 h-6" />
+            </div>
+            <h1 className="font-display font-bold text-xl tracking-tight truncate">Result Analyzer</h1>
           </div>
-          <h1 className="font-display font-bold text-xl tracking-tight">ExamAnalyzer</h1>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="lg:hidden shrink-0"
+            onClick={() => setMobileControlsOpen((prev) => !prev)}
+            aria-label={mobileControlsOpen ? "Close controls" : "Open controls"}
+          >
+            {mobileControlsOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+          </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-8">
+        <div className={`${mobileControlsOpen ? "block" : "hidden"} lg:block flex-1 overflow-y-auto p-4 sm:p-6 space-y-8`}>
           <div className="space-y-4">
             <h3 className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider">Data Source</h3>
             
@@ -109,7 +211,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <p className="text-sm font-medium mb-1">
-                {uploadMutation.isPending ? "Analyzing..." : "Drop Excel file here"}
+                {isBusy ? "Analyzing..." : "Drop Excel file here"}
               </p>
               <p className="text-xs text-muted-foreground">or click to browse (.xlsx, .xls)</p>
             </div>
@@ -134,7 +236,27 @@ export default function Dashboard() {
                 type="range" 
                 min="0" max="100" 
                 value={passPercentage}
-                onChange={(e) => setPassPercentage(parseInt(e.target.value))}
+                onChange={(e) => {
+                  const nextPassPercentage = parseInt(e.target.value);
+                  setPassPercentage(nextPassPercentage);
+
+                  if (!analysisData?.subjectColumns?.length) {
+                    return;
+                  }
+
+                  const nextThresholds = buildSubjectPassPercentageMap(
+                    analysisData.subjectColumns,
+                    nextPassPercentage,
+                  );
+                  setSubjectPassPercentages(nextThresholds);
+                  setAnalysisData(
+                    reanalyzeAnalysisResponse(
+                      analysisData,
+                      nextPassPercentage,
+                      nextThresholds,
+                    ),
+                  );
+                }}
                 className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
               />
             </div>
@@ -164,10 +286,42 @@ export default function Dashboard() {
                 <div className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${showStudentIds ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
+
+            {analysisData?.analysis && analysisData.subjectColumns.length > 0 && (
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">Subject-wise Pass %</label>
+                  <span className="text-xs text-muted-foreground">Per subject cutoff</span>
+                </div>
+                <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                  {analysisData.subjectColumns.map((subject) => (
+                    <div key={subject} className="grid grid-cols-[1fr_88px] gap-3 items-center">
+                      <label className="text-sm text-muted-foreground truncate" title={subject}>{subject}</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={subjectPassPercentages[subject] ?? passPercentage}
+                        onChange={(e) => handleSubjectThresholdChange(subject, e.target.value)}
+                        disabled={isBusy}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="secondary" onClick={resetSubjectThresholds} disabled={isBusy}>
+                    Reset to Global
+                  </Button>
+                  <Button onClick={applySubjectThresholds} disabled={isBusy}>
+                    Apply Thresholds
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="p-6 border-t border-sidebar-border">
+        <div className={`${mobileControlsOpen ? "block" : "hidden"} lg:block p-4 sm:p-6 border-t border-sidebar-border`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-white font-bold text-sm">
@@ -191,16 +345,16 @@ export default function Dashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-hidden flex flex-col relative h-screen">
-        {uploadMutation.isPending && (
+      <main className="flex-1 overflow-hidden flex flex-col relative min-h-[55vh] lg:h-screen">
+        {isBusy && (
           <div className="absolute inset-0 z-50 bg-background/50 backdrop-blur-sm flex flex-col items-center justify-center">
             <ActivitySquare className="w-16 h-16 text-primary animate-pulse mb-4" />
             <h2 className="text-2xl font-bold">Analyzing Data...</h2>
-            <p className="text-muted-foreground mt-2">Crunching numbers and generating insights</p>
+            <p className="text-muted-foreground mt-2">Applying your pass criteria and generating insights</p>
           </div>
         )}
 
-        {!analysisData && !uploadMutation.isPending ? (
+        {!analysisData && !isBusy ? (
           <div className="flex-1 flex flex-col items-center justify-center p-12 text-center h-full">
             <div className="w-24 h-24 bg-secondary rounded-full flex items-center justify-center mb-6">
               <FileSpreadsheet className="w-12 h-12 text-muted-foreground" />
@@ -211,22 +365,22 @@ export default function Dashboard() {
             </p>
           </div>
         ) : analysisData && (
-          <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <div className="flex items-center justify-between mb-8 sticky top-0 z-10 bg-background/80 backdrop-blur-xl pb-4 border-b border-border">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-6 lg:mb-8 sticky top-0 z-10 bg-background/80 backdrop-blur-xl pb-4 border-b border-border">
                 <div>
-                  <h2 className="text-3xl font-display font-bold text-foreground tracking-tight">Analysis Results</h2>
-                  <p className="text-muted-foreground mt-1">Based on {analysisData.analysis?.totalStudents} students and {analysisData.analysis?.totalSubjects} subjects.</p>
+                  <h2 className="text-2xl sm:text-3xl font-display font-bold text-foreground tracking-tight">Analysis Results</h2>
+                  <p className="text-sm sm:text-base text-muted-foreground mt-1">Based on {analysisData.analysis?.totalStudents} students and {analysisData.analysis?.totalSubjects} subjects.</p>
                 </div>
                 
-                <TabsList className="bg-secondary/60">
-                  <TabsTrigger value="executive"><LayoutDashboard className="w-4 h-4 mr-2"/> Executive</TabsTrigger>
-                  <TabsTrigger value="subjects"><ActivitySquare className="w-4 h-4 mr-2"/> Subjects</TabsTrigger>
-                  <TabsTrigger value="students"><Users className="w-4 h-4 mr-2"/> Students</TabsTrigger>
-                  <TabsTrigger value="top"><Trophy className="w-4 h-4 mr-2"/> Top Performers</TabsTrigger>
-                  <TabsTrigger value="data"><TableIcon className="w-4 h-4 mr-2"/> Raw Data</TabsTrigger>
-                  <TabsTrigger value="advanced"><ActivitySquare className="w-4 h-4 mr-2"/> Advanced</TabsTrigger>
-                  <TabsTrigger value="reports"><FileText className="w-4 h-4 mr-2"/> Reports</TabsTrigger>
+                <TabsList className="bg-secondary/60 w-full lg:w-auto justify-start overflow-x-auto whitespace-nowrap">
+                  <TabsTrigger className="shrink-0" value="executive"><LayoutDashboard className="w-4 h-4 mr-2"/> Executive</TabsTrigger>
+                  <TabsTrigger className="shrink-0" value="subjects"><ActivitySquare className="w-4 h-4 mr-2"/> Subjects</TabsTrigger>
+                  <TabsTrigger className="shrink-0" value="students"><Users className="w-4 h-4 mr-2"/> Students</TabsTrigger>
+                  <TabsTrigger className="shrink-0" value="top"><Trophy className="w-4 h-4 mr-2"/> Top Performers</TabsTrigger>
+                  <TabsTrigger className="shrink-0" value="data"><TableIcon className="w-4 h-4 mr-2"/> Raw Data</TabsTrigger>
+                  <TabsTrigger className="shrink-0" value="advanced"><ActivitySquare className="w-4 h-4 mr-2"/> Advanced</TabsTrigger>
+                  <TabsTrigger className="shrink-0" value="reports"><FileText className="w-4 h-4 mr-2"/> Reports</TabsTrigger>
                 </TabsList>
               </div>
 

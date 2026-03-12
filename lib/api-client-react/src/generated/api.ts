@@ -23,6 +23,7 @@ import type {
   HealthStatus,
   LoginRequest,
   LoginResponse,
+  ReanalyzeRequest,
   SuccessResponse,
   UploadFileBody,
   UserResponse,
@@ -359,6 +360,12 @@ export const uploadFile = async (
   if (uploadFileBody.passPercentage !== undefined) {
     formData.append(`passPercentage`, uploadFileBody.passPercentage.toString());
   }
+  if (uploadFileBody.subjectPassPercentages !== undefined) {
+    formData.append(
+      `subjectPassPercentages`,
+      JSON.stringify(uploadFileBody.subjectPassPercentages),
+    );
+  }
 
   return customFetch<AnalysisResponse>(getUploadFileUrl(), {
     ...options,
@@ -432,6 +439,92 @@ export const useUploadFile = <
   TContext
 > => {
   return useMutation(getUploadFileMutationOptions(options));
+};
+
+/**
+ * @summary Reanalyze existing results with updated parameters
+ */
+export const getReanalyzeUrl = () => {
+  return `/api/analysis/reanalyze`;
+};
+
+export const reanalyze = async (
+  reanalyzeRequest: ReanalyzeRequest,
+  options?: RequestInit,
+): Promise<AnalysisResponse> => {
+  return customFetch<AnalysisResponse>(getReanalyzeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(reanalyzeRequest),
+  });
+};
+
+export const getReanalyzeMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reanalyze>>,
+    TError,
+    { data: BodyType<ReanalyzeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reanalyze>>,
+  TError,
+  { data: BodyType<ReanalyzeRequest> },
+  TContext
+> => {
+  const mutationKey = ["reanalyze"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reanalyze>>,
+    { data: BodyType<ReanalyzeRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reanalyze(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReanalyzeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reanalyze>>
+>;
+export type ReanalyzeMutationBody = BodyType<ReanalyzeRequest>;
+export type ReanalyzeMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Reanalyze existing results with updated parameters
+ */
+export const useReanalyze = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reanalyze>>,
+    TError,
+    { data: BodyType<ReanalyzeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reanalyze>>,
+  TError,
+  { data: BodyType<ReanalyzeRequest> },
+  TContext
+> => {
+  return useMutation(getReanalyzeMutationOptions(options));
 };
 
 /**

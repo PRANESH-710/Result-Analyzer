@@ -6,7 +6,11 @@ const APP_USERNAME = process.env.APP_USERNAME || 'admin';
 const APP_PASSWORD = process.env.APP_PASSWORD || 'admin123';
 
 router.post('/login', (req: Request, res: Response) => {
-  const { username, password } = req.body || {};
+  const rawUsername = req.body?.username;
+  const rawPassword = req.body?.password;
+
+  const username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
+  const password = typeof rawPassword === 'string' ? rawPassword.trim() : '';
 
   if (!username || !password) {
     res.status(400).json({ error: 'Username and password are required.' });

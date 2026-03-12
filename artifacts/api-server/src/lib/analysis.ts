@@ -2,6 +2,7 @@ export interface SubjectStats {
   passedCount: number;
   failedCount: number;
   totalCount: number;
+  passPercentageUsed: number;
   passRate: number;
   failRate: number;
   averageScore: number;
@@ -28,6 +29,7 @@ export interface AnalysisResult {
   totalStudents: number;
   totalSubjects: number;
   subjectWiseStats: Record<string, SubjectStats>;
+  subjectPassPercentages: Record<string, number>;
   departmentPassRate: number;
   overallTopStudent: TopStudent | null;
   topStudents: TopStudent[];
@@ -43,6 +45,32 @@ export interface ValidationResult {
   isValid: boolean;
   errors: string[];
   warnings: string[];
+}
+
+function normalizePassThreshold(
+  value: unknown,
+  fallback: number,
+): number {
+  const parsed = Number(value);
+
+  if (Number.isNaN(parsed) || parsed < 0 || parsed > 100) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+export function normalizeSubjectPassPercentages(
+  subjectColumns: string[],
+  passPercentage: number,
+  subjectPassPercentages?: Record<string, number>,
+): Record<string, number> {
+  return Object.fromEntries(
+    subjectColumns.map((subject) => [
+      subject,
+      normalizePassThreshold(subjectPassPercentages?.[subject], passPercentage),
+    ]),
+  );
 }
 
 const IDENTIFIER_PATTERNS = new Set([
@@ -114,9 +142,15 @@ export function validateData(rows: Record<string, unknown>[], columns: string[])
 export function analyzeResults(
   rows: Record<string, unknown>[],
   columns: string[],
-  passPercentage: number
+  passPercentage: number,
+  subjectPassPercentages?: Record<string, number>,
 ): AnalysisResult {
   const subjectCols = getSubjectCols(columns);
+  const normalizedSubjectPassPercentages = normalizeSubjectPassPercentages(
+    subjectCols,
+    passPercentage,
+    subjectPassPercentages,
+  );
 
   // Ensure Student_Name col
   const hasStudentName = columns.some(c => normalizeCol(c) === 'student_name');
@@ -134,6 +168,7 @@ export function analyzeResults(
 
   const subjectStats: Record<string, SubjectStats> = {};
   for (const subject of subjectCols) {
+    const subjectPassPercentage = normalizedSubjectPassPercentages[subject];
     const vals: { score: number; name: string }[] = [];
     rows.forEach((row, i) => {
       const v = row[subject];
@@ -148,14 +183,15 @@ export function analyzeResults(
     if (vals.length === 0) continue;
 
     const scores = vals.map(v => v.score);
-    const passed = vals.filter(v => v.score >= passPercentage);
-    const failed = vals.filter(v => v.score < passPercentage);
+    const passed = vals.filter(v => v.score >= subjectPassPercentage);
+    const failed = vals.filter(v => v.score < subjectPassPercentage);
     const topper = vals.reduce((a, b) => (a.score >= b.score ? a : b));
 
     subjectStats[subject] = {
       passedCount: passed.length,
       failedCount: failed.length,
       totalCount: vals.length,
+      passPercentageUsed: subjectPassPercentage,
       passRate: (passed.length / vals.length) * 100,
       failRate: (failed.length / vals.length) * 100,
       averageScore: scores.reduce((a, b) => a + b, 0) / scores.length,
@@ -175,13 +211,14 @@ export function analyzeResults(
     let passedAll = true;
     const scores: number[] = [];
     for (const subject of subjectCols) {
+      const subjectPassPercentage = normalizedSubjectPassPercentages[subject];
       const v = row[subject];
       if (v === null || v === undefined || v === '') {
         passedAll = false;
         continue;
       }
       const n = Number(v);
-      if (isNaN(n) || n < passPercentage) {
+      if (isNaN(n) || n < subjectPassPercentage) {
         passedAll = false;
       }
       if (!isNaN(n)) scores.push(n);
@@ -215,6 +252,7 @@ export function analyzeResults(
   const anomalies: Anomaly[] = [];
   for (const subject of subjectCols) {
     const vals = rows.map(r => r[subject]).filter(v => v !== null && v !== undefined && v !== '').map(Number).filter(n => !isNaN(n));
+    const subjectPassPercentage = normalizedSubjectPassPercentages[subject];
     if (vals.length === 0) {
       anomalies.push({ type: 'empty_subject', subject, description: `No valid scores found for ${subject}` });
       continue;
@@ -227,7 +265,7 @@ export function analyzeResults(
     if (perfect > vals.length * 0.3) {
       anomalies.push({ type: 'excessive_perfect_scores', subject, count: perfect, description: `Unusually high number of perfect scores in ${subject} (${perfect} students)` });
     }
-    const pr = vals.filter(v => v >= passPercentage).length / vals.length * 100;
+    const pr = vals.filter(v => v >= subjectPassPercentage).length / vals.length * 100;
     if (pr < 20) {
       anomalies.push({ type: 'low_pass_rate', subject, passRate: pr, description: `Very low pass rate in ${subject} (${pr.toFixed(1)}%)` });
     }
@@ -237,6 +275,7 @@ export function analyzeResults(
     totalStudents,
     totalSubjects,
     subjectWiseStats: subjectStats,
+    subjectPassPercentages: normalizedSubjectPassPercentages,
     departmentPassRate,
     overallTopStudent: studentAverages[0] || null,
     topStudents: studentAverages.slice(0, 10),

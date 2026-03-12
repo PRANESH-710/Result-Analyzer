@@ -8,6 +8,19 @@ import { generateExcelExport } from '../lib/excel-exporter.js';
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
+function parseSubjectPassPercentages(value: unknown): Record<string, number> | undefined {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, number> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function requireAuth(req: Request, res: Response): boolean {
   if (!(req.session as any).username) {
     res.status(401).json({ error: 'Not authenticated.' });
@@ -31,6 +44,7 @@ router.post('/upload', upload.single('file'), (req: Request, res: Response) => {
   }
 
   const passPercentage = parseFloat(req.body?.passPercentage) || 40;
+  const subjectPassPercentages = parseSubjectPassPercentages(req.body?.subjectPassPercentages);
 
   try {
     const { rows, columns } = parseExcelBuffer(req.file.buffer);
@@ -42,12 +56,40 @@ router.post('/upload', upload.single('file'), (req: Request, res: Response) => {
     }
 
     const subjectColumns = getSubjectCols(columns);
-    const analysis = analyzeResults(rows, columns, passPercentage);
+    const analysis = analyzeResults(rows, columns, passPercentage, subjectPassPercentages);
 
     res.json({ validation, analysis, rawData: rows, columns, subjectColumns });
   } catch (err: any) {
     res.status(400).json({ error: `Failed to process file: ${err.message}` });
   }
+});
+
+router.post('/reanalyze', (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+
+  const rawData = Array.isArray(req.body?.rawData) ? req.body.rawData : [];
+  const columns = Array.isArray(req.body?.columns) ? req.body.columns : [];
+  const passPercentage = parseFloat(req.body?.passPercentage) || 40;
+  const subjectPassPercentages =
+    req.body?.subjectPassPercentages && typeof req.body.subjectPassPercentages === 'object'
+      ? req.body.subjectPassPercentages as Record<string, number>
+      : undefined;
+
+  if (rawData.length === 0 || columns.length === 0) {
+    res.status(400).json({ error: 'Raw data and columns are required.' });
+    return;
+  }
+
+  const validation = validateData(rawData, columns);
+  if (!validation.isValid) {
+    res.json({ validation, analysis: null, rawData: [], columns, subjectColumns: [] });
+    return;
+  }
+
+  const subjectColumns = getSubjectCols(columns);
+  const analysis = analyzeResults(rawData, columns, passPercentage, subjectPassPercentages);
+
+  res.json({ validation, analysis, rawData, columns, subjectColumns });
 });
 
 router.post('/export/excel', (req: Request, res: Response) => {
@@ -113,42 +155,57 @@ router.post('/export/pdf', (req: Request, res: Response) => {
 });
 
 function createSimplePdf(markdown: string): Buffer {
-  // Simple PDF generation using raw PDF syntax
-  const lines = markdown.split('\n').filter(l => l.trim());
-  const pdfLines: string[] = [];
-  
-  const header = `%PDF-1.4
-1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
-2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj`;
-  
-  // Clean text for PDF
-  const cleanText = lines
-    .map(l => l.replace(/[#*|]/g, '').trim())
-    .filter(l => l.length > 0)
-    .slice(0, 100);
-  
-  let yPos = 750;
-  const textOps: string[] = [];
-  for (const line of cleanText) {
-    const escaped = line.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-    textOps.push(`BT /F1 12 Tf 50 ${yPos} Td (${escaped.substring(0, 80)}) Tj ET`);
-    yPos -= 18;
-    if (yPos < 50) break;
+  const lines = markdown
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/\|/g, ' ')
+        .replace(/\*\*/g, '')
+        .replace(/`/g, '')
+        .replace(/^#+\s*/g, '')
+        .trim()
+    )
+    .filter((line) => line.length > 0);
+
+  const pdfTextLines = lines.slice(0, 180);
+  let yPos = 760;
+  const textOps: string[] = ['BT', '/F1 11 Tf'];
+
+  for (const line of pdfTextLines) {
+    const printable = line.substring(0, 95).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+    textOps.push(`1 0 0 1 44 ${yPos} Tm (${printable}) Tj`);
+    yPos -= 14;
+    if (yPos < 40) break;
+  }
+  textOps.push('ET');
+
+  const contentStream = `${textOps.join('\n')}\n`;
+
+  const objects: string[] = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n',
+    `4 0 obj\n<< /Length ${Buffer.byteLength(contentStream, 'utf-8')} >>\nstream\n${contentStream}endstream\nendobj\n`,
+    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+  ];
+
+  let pdf = '%PDF-1.4\n';
+  const offsets: number[] = [0];
+
+  for (const obj of objects) {
+    offsets.push(Buffer.byteLength(pdf, 'utf-8'));
+    pdf += obj;
   }
 
-  const streamContent = textOps.join('\n');
-  const stream = `stream\n${streamContent}\nendstream`;
-  
-  const page = `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj
-4 0 obj << /Length ${stream.length} >>\n${stream}\nendobj
-5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj`;
+  const xrefStart = Buffer.byteLength(pdf, 'utf-8');
+  pdf += `xref\n0 ${objects.length + 1}\n`;
+  pdf += '0000000000 65535 f \n';
+  for (let i = 1; i <= objects.length; i += 1) {
+    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
 
-  const xrefOffset = (header + '\n' + page).length;
-  const xref = `xref\n0 6\n0000000000 65535 f\n0000000009 00000 n\n0000000058 00000 n\n0000000115 00000 n\n0000000274 00000 n\n0000000${String(xrefOffset).padStart(6, '0')} 00000 n`;
-  
-  const fullPdf = `${header}\n${page}\n${xref}\ntrailer << /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset + page.length}\n%%EOF`;
-  
-  return Buffer.from(fullPdf, 'utf-8');
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return Buffer.from(pdf, 'utf-8');
 }
 
 export default router;

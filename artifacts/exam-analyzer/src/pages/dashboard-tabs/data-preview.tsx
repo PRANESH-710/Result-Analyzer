@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAppStore } from "@/store/use-app-store";
+import { getStudentIdValue, getStudentNameValue } from "@/lib/student-identifiers";
 import { getGradeColor } from "@/lib/utils";
 
 export function DataPreview({ data }: { data: any }) {
@@ -26,9 +27,9 @@ export function DataPreview({ data }: { data: any }) {
           <tbody>
             {rawData.map((row: any, rowIndex: number) => (
               <tr key={rowIndex} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                {showStudentIds && <td className="px-6 py-3 font-mono">{row.studentId}</td>}
+                {showStudentIds && <td className="px-6 py-3 font-mono">{getStudentIdValue(row) ?? "-"}</td>}
                 <td className="px-6 py-3 font-medium">
-                  {showStudentIds ? row.studentName : `Student ${rowIndex + 1}`}
+                  {showStudentIds ? getStudentNameValue(row, `Student ${rowIndex + 1}`) : `Student ${rowIndex + 1}`}
                 </td>
                 {data.subjectColumns.map((col: string, colIndex: number) => (
                   <td key={colIndex} className={`px-6 py-3 ${getGradeColor(Number(row[col]), passPercentage)}`}>

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from "recharts";
 import { useAppStore } from "@/store/use-app-store";
+import { getStudentIdValue, getStudentNameValue } from "@/lib/student-identifiers";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getHeatmapColor, formatDecimals } from "@/lib/utils";
 
@@ -79,11 +80,17 @@ export function AdvancedCharts({ data }: { data: any }) {
               {/* Data Rows */}
               {data.rawData.map((row: any, r: number) => (
                 <div key={r} className="contents group">
-                  <div className="p-2 text-sm font-medium border-t border-border group-hover:bg-secondary/50 truncate max-w-[200px]" title={row.studentName}>
-                    {showStudentIds ? row.studentName : `Student ${r + 1}`}
+                  <div
+                    className="p-2 text-sm font-medium border-t border-border group-hover:bg-secondary/50 truncate max-w-[200px]"
+                    title={showStudentIds ? getStudentNameValue(row, `Student ${r + 1}`) : `Student ${r + 1}`}
+                  >
+                    {showStudentIds
+                      ? `${getStudentNameValue(row, `Student ${r + 1}`)}${getStudentIdValue(row) ? ` (${getStudentIdValue(row)})` : ""}`
+                      : `Student ${r + 1}`}
                   </div>
                   {data.subjectColumns.map((col: string, c: number) => {
                     const score = Number(row[col]);
+                    const studentName = getStudentNameValue(row, `Student ${r + 1}`);
                     return (
                       <Tooltip key={c}>
                         <TooltipTrigger asChild>
@@ -93,7 +100,7 @@ export function AdvancedCharts({ data }: { data: any }) {
                         </TooltipTrigger>
                         <TooltipContent className="bg-card border border-border">
                           <p className="font-semibold">{col}</p>
-                          <p className="text-sm">{showStudentIds ? row.studentName : `Student ${r + 1}`}: <span className="text-primary">{score}</span></p>
+                          <p className="text-sm">{showStudentIds ? studentName : `Student ${r + 1}`}: <span className="text-primary">{score}</span></p>
                         </TooltipContent>
                       </Tooltip>
                     );
