@@ -48,6 +48,28 @@ function formatHistoryTime(value: string) {
   return date.toLocaleString();
 }
 
+async function readApiError(response: Response, fallback: string): Promise<string> {
+  try {
+    const payload = await response.clone().json();
+    if (payload?.error && typeof payload.error === "string") {
+      return payload.error;
+    }
+  } catch {
+    // continue to fallback parsing
+  }
+
+  try {
+    const text = await response.text();
+    if (text && text.trim()) {
+      return text.slice(0, 180);
+    }
+  } catch {
+    // ignore
+  }
+
+  return fallback;
+}
+
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -74,7 +96,7 @@ export default function Dashboard() {
     setAnalysisData,
     analysisHistory,
     activeHistoryId,
-    addAnalysisToHistory,
+    setAnalysisHistory,
     updateActiveHistory,
     loadAnalysisFromHistory,
     removeAnalysisFromHistory,
@@ -84,12 +106,51 @@ export default function Dashboard() {
   const uploadMutation = useUploadFile();
   const [activeTab, setActiveTab] = useState("executive");
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
+  const [accounts, setAccounts] = useState<Array<{ username: string; createdAt: string }>>([]);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotCode, setForgotCode] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [requestingForgotCode, setRequestingForgotCode] = useState(false);
+  const [confirmingForgotPassword, setConfirmingForgotPassword] = useState(false);
+  const [isAccountPanelOpen, setIsAccountPanelOpen] = useState(false);
+  const [selectedAccountUsername, setSelectedAccountUsername] = useState<string | null>(null);
+
+  const accountSource = ((user as any)?.accountSource as string | undefined) ?? "unknown";
+  const accountCreatedAt = ((user as any)?.createdAt as string | undefined) ?? null;
+  const selectedAccount =
+    selectedAccountUsername
+      ? accounts.find((account) => account.username === selectedAccountUsername) ?? null
+      : null;
+  const isSelectedCurrentUser =
+    !!selectedAccount && selectedAccount.username.toLowerCase() === user.username.toLowerCase();
 
   useEffect(() => {
     if (authError || (user && !user.authenticated)) {
       setLocation("/login");
     }
   }, [user, authError, setLocation]);
+
+  useEffect(() => {
+    if (!user?.authenticated) {
+      return;
+    }
+
+    // Prevent previous account data from flashing when switching users.
+    setSelectedAccountUsername(null);
+    setShowChangePassword(false);
+    setShowForgotPassword(false);
+    setForgotCode("");
+    setForgotNewPassword("");
+    setAnalysisData(null);
+    clearAnalysisHistory();
+  }, [user?.username, user?.authenticated, setAnalysisData, clearAnalysisHistory]);
 
   useEffect(() => {
     if (!analysisData?.analysis || analysisData.subjectColumns.length === 0) {
@@ -106,27 +167,46 @@ export default function Dashboard() {
     );
   }, [analysisData, setSubjectPassPercentages]);
 
+  const loadServerHistory = useCallback(async () => {
+    try {
+      const response = await fetch('/api/analysis/history', {
+        credentials: 'include',
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || 'Unable to load result history');
+      }
+
+      const items = Array.isArray(result?.items)
+        ? result.items.map((item: any) => ({
+            id: String(item.id),
+            name: String(item.name ?? 'Untitled'),
+            createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
+            analysisData: item.analysisData,
+            passPercentage: Number(item.passPercentage ?? 40),
+            subjectPassPercentages:
+              item.subjectPassPercentages && typeof item.subjectPassPercentages === 'object'
+                ? item.subjectPassPercentages
+                : {},
+          }))
+        : [];
+
+      setAnalysisHistory(items);
+    } catch (error: any) {
+      toast({ title: error?.message || 'Unable to load result history', variant: 'destructive' });
+    }
+  }, [setAnalysisHistory, toast]);
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       const file = acceptedFiles[0];
 
       uploadMutation.mutate({ data: { file, passPercentage } }, {
-        onSuccess: (res) => {
+        onSuccess: async (res) => {
           setAnalysisData(res);
 
-          const nextPassPercentage = res.analysis?.passPercentage ?? passPercentage;
-          const nextSubjectThresholds = buildSubjectPassPercentageMap(
-            res.subjectColumns ?? [],
-            nextPassPercentage,
-            res.analysis?.subjectPassPercentages,
-          );
-
-          addAnalysisToHistory({
-            name: file.name,
-            analysisData: res,
-            passPercentage: nextPassPercentage,
-            subjectPassPercentages: nextSubjectThresholds,
-          });
+          await loadServerHistory();
 
           toast({
             title: "Saved to Result History",
@@ -135,7 +215,7 @@ export default function Dashboard() {
         }
       });
     }
-  }, [passPercentage, uploadMutation, setAnalysisData, addAnalysisToHistory, toast]);
+  }, [passPercentage, uploadMutation, setAnalysisData, loadServerHistory, toast]);
 
   const handleLoadHistory = (id: string) => {
     const item = loadAnalysisFromHistory(id);
@@ -230,6 +310,174 @@ export default function Dashboard() {
 
   const isBusy = uploadMutation.isPending;
 
+  const loadAccounts = useCallback(async () => {
+    setAccountsLoading(true);
+    setAccountsError(null);
+
+    try {
+      const response = await fetch("/api/auth/accounts", {
+        credentials: "include",
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || "Unable to load accounts");
+      }
+
+      const nextAccounts = Array.isArray(result?.users) ? result.users : [];
+      setAccounts(nextAccounts);
+
+      if (selectedAccountUsername) {
+        const stillExists = nextAccounts.some((item: any) => item.username === selectedAccountUsername);
+        if (!stillExists) {
+          setSelectedAccountUsername(null);
+        }
+      }
+    } catch (error: any) {
+      setAccountsError(error?.message || "Unable to load accounts");
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, [selectedAccountUsername]);
+
+  useEffect(() => {
+    if (user?.authenticated) {
+      loadAccounts();
+      loadServerHistory();
+    }
+  }, [user?.authenticated, loadAccounts, loadServerHistory]);
+
+  const handlePasswordChange = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!currentPassword.trim() || !newPassword.trim()) {
+      toast({ title: "Enter both current and new passwords", variant: "destructive" });
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const response = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          currentPassword: currentPassword.trim(),
+          newPassword: newPassword.trim(),
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || "Unable to change password");
+      }
+
+      setCurrentPassword("");
+      setNewPassword("");
+      toast({ title: "Password updated successfully" });
+    } catch (error: any) {
+      toast({ title: error?.message || "Unable to change password", variant: "destructive" });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const handleDeleteMyAccount = async (username: string) => {
+    const confirmed = window.confirm("Delete your account permanently?");
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingAccount(true);
+    try {
+      const response = await fetch(`/api/auth/accounts/${encodeURIComponent(username)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || "Unable to delete account");
+      }
+
+      toast({ title: "Account deleted" });
+      setSelectedAccountUsername(null);
+      setLocation("/login");
+    } catch (error: any) {
+      toast({ title: error?.message || "Unable to delete account", variant: "destructive" });
+      await loadAccounts();
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const handleForgotPasswordRequest = async () => {
+    setRequestingForgotCode(true);
+
+    try {
+      const response = await fetch("/api/auth/forgot-password/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username: user.username }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Unable to request reset code"));
+      }
+
+      const code = result?.resetCode ?? "";
+      setForgotCode(code);
+      toast({
+        title: "Reset code generated",
+        description: code ? `Code: ${code}` : "Use the generated code to reset password.",
+      });
+    } catch (error: any) {
+      toast({ title: error?.message || "Unable to request reset code", variant: "destructive" });
+    } finally {
+      setRequestingForgotCode(false);
+    }
+  };
+
+  const handleForgotPasswordConfirm = async () => {
+    if (!forgotCode.trim() || !forgotNewPassword.trim()) {
+      toast({ title: "Enter reset code and new password", variant: "destructive" });
+      return;
+    }
+
+    setConfirmingForgotPassword(true);
+
+    try {
+      const response = await fetch("/api/auth/forgot-password/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          username: user.username,
+          resetCode: forgotCode.trim(),
+          newPassword: forgotNewPassword.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Unable to reset password"));
+      }
+
+      setForgotCode("");
+      setForgotNewPassword("");
+      setShowForgotPassword(false);
+      setShowChangePassword(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      toast({ title: "Password reset successful" });
+    } catch (error: any) {
+      toast({ title: error?.message || "Unable to reset password", variant: "destructive" });
+    } finally {
+      setConfirmingForgotPassword(false);
+    }
+  };
+
   if (isAuthLoading) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-background">
@@ -306,9 +554,22 @@ export default function Dashboard() {
                     variant="ghost"
                     size="sm"
                     className="h-7 px-2 text-xs text-muted-foreground"
-                    onClick={() => {
-                      clearAnalysisHistory();
-                      toast({ title: "Result history cleared" });
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('/api/analysis/history', {
+                          method: 'DELETE',
+                          credentials: 'include',
+                        });
+
+                        if (!response.ok) {
+                          throw new Error(await readApiError(response, 'Unable to clear result history'));
+                        }
+
+                        clearAnalysisHistory();
+                        toast({ title: "Result history cleared" });
+                      } catch (error: any) {
+                        toast({ title: error?.message || 'Unable to clear result history', variant: 'destructive' });
+                      }
                     }}
                   >
                     Clear
@@ -347,9 +608,22 @@ export default function Dashboard() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          onClick={() => {
-                            removeAnalysisFromHistory(item.id);
-                            toast({ title: "Removed from history" });
+                          onClick={async () => {
+                            try {
+                              const response = await fetch(`/api/analysis/history/${encodeURIComponent(item.id)}`, {
+                                method: 'DELETE',
+                                credentials: 'include',
+                              });
+
+                              if (!response.ok) {
+                                throw new Error(await readApiError(response, 'Unable to remove history item'));
+                              }
+
+                              removeAnalysisFromHistory(item.id);
+                              toast({ title: "Removed from history" });
+                            } catch (error: any) {
+                              toast({ title: error?.message || 'Unable to remove history item', variant: 'destructive' });
+                            }
                           }}
                           title="Delete history item"
                         >
@@ -468,25 +742,192 @@ export default function Dashboard() {
         </div>
 
         <div className={`${mobileControlsOpen ? "block" : "hidden"} lg:block p-4 sm:p-6 border-t border-sidebar-border`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-white font-bold text-sm">
-                {user.username.charAt(0).toUpperCase()}
-              </div>
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              className="w-10 h-10 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-white font-bold text-sm ring-2 ring-transparent hover:ring-primary/40 transition-all"
+              onClick={() => setIsAccountPanelOpen((prev) => !prev)}
+              title={isAccountPanelOpen ? "Close account panel" : "Open account panel"}
+            >
+              {user.username.charAt(0).toUpperCase()}
+            </button>
+          </div>
+
+          {isAccountPanelOpen ? (
+          <div className="mt-4 space-y-4 rounded-xl border border-sidebar-border bg-sidebar-accent/30 p-3">
+            <div className="flex items-center justify-between">
               <div className="text-sm">
                 <p className="font-medium text-sidebar-foreground">{user.username}</p>
+                <p className="text-xs text-muted-foreground">{accountSource.toUpperCase()} account</p>
               </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => logoutMutation.mutate()}
+                title="Logout"
+                className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="w-4 h-4" />
+              </Button>
             </div>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={() => logoutMutation.mutate()}
-              title="Logout"
-              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
+
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-sidebar-foreground/60 uppercase tracking-wider">Accounts</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs"
+                onClick={loadAccounts}
+                disabled={accountsLoading}
+              >
+                {accountsLoading ? "Loading..." : "Refresh"}
+              </Button>
+            </div>
+
+            {accountsError ? (
+              <p className="text-xs text-destructive">{accountsError}</p>
+            ) : accounts.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No local accounts yet.</p>
+            ) : (
+              <div className="max-h-28 overflow-y-auto space-y-1 pr-1">
+                {accounts.map((account) => (
+                  <button
+                    key={account.username}
+                    type="button"
+                    className={`w-full text-xs rounded-md border px-2 py-1.5 text-left transition-colors ${
+                      selectedAccountUsername === account.username
+                        ? "border-primary/60 bg-primary/10"
+                        : "border-sidebar-border bg-sidebar-accent/20 hover:bg-sidebar-accent/40"
+                    }`}
+                    onClick={() => setSelectedAccountUsername(account.username)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sidebar-foreground">{account.username}</span>
+                      <span className="text-muted-foreground">{new Date(account.createdAt).toLocaleDateString()}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedAccount ? (
+              <div className="space-y-2 rounded-lg border border-border/60 bg-secondary/20 p-2.5">
+                <p className="text-xs font-semibold text-sidebar-foreground/60 uppercase tracking-wider">Account Details</p>
+                <p className="text-xs text-sidebar-foreground">Username: {selectedAccount.username}</p>
+                <p className="text-xs text-muted-foreground">
+                  Type: {isSelectedCurrentUser ? accountSource : "local"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Created: {isSelectedCurrentUser && accountCreatedAt
+                    ? new Date(accountCreatedAt).toLocaleString()
+                    : new Date(selectedAccount.createdAt).toLocaleString()}
+                </p>
+
+                {isSelectedCurrentUser ? (
+                  <>
+                    <div className="pt-1">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          setShowChangePassword((prev) => !prev);
+                          setShowForgotPassword(false);
+                        }}
+                      >
+                        {showChangePassword ? "Close Change Password" : "Change Password"}
+                      </Button>
+                    </div>
+
+                    {showChangePassword ? (
+                      <form className="space-y-2 pt-1" onSubmit={handlePasswordChange}>
+                        <Input
+                          type="password"
+                          placeholder="Current password"
+                          value={currentPassword}
+                          onChange={(event) => setCurrentPassword(event.target.value)}
+                          disabled={changingPassword}
+                        />
+                        <Input
+                          type="password"
+                          placeholder="New password"
+                          value={newPassword}
+                          onChange={(event) => setNewPassword(event.target.value)}
+                          disabled={changingPassword}
+                        />
+                        <Button type="submit" size="sm" className="w-full" disabled={changingPassword}>
+                          {changingPassword ? "Updating..." : "Update Password"}
+                        </Button>
+
+                        <button
+                          type="button"
+                          className="w-full text-xs text-primary hover:underline"
+                          onClick={() => setShowForgotPassword((prev) => !prev)}
+                        >
+                          {showForgotPassword ? "Close Forgot Password" : "Forgot Password?"}
+                        </button>
+
+                        {showForgotPassword ? (
+                          <div className="space-y-2 rounded-lg border border-border/60 bg-secondary/30 p-2.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="w-full"
+                              onClick={handleForgotPasswordRequest}
+                              disabled={requestingForgotCode || confirmingForgotPassword}
+                            >
+                              {requestingForgotCode ? "Generating code..." : "Get Reset Code"}
+                            </Button>
+                            <Input
+                              placeholder="Reset code"
+                              value={forgotCode}
+                              onChange={(event) => setForgotCode(event.target.value)}
+                              disabled={requestingForgotCode || confirmingForgotPassword}
+                            />
+                            <Input
+                              type="password"
+                              placeholder="New password"
+                              value={forgotNewPassword}
+                              onChange={(event) => setForgotNewPassword(event.target.value)}
+                              disabled={requestingForgotCode || confirmingForgotPassword}
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="w-full"
+                              onClick={handleForgotPasswordConfirm}
+                              disabled={requestingForgotCode || confirmingForgotPassword}
+                            >
+                              {confirmingForgotPassword ? "Resetting..." : "Confirm Reset Password"}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </form>
+                    ) : null}
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="w-full text-destructive hover:text-destructive"
+                      disabled={deletingAccount}
+                      onClick={() => handleDeleteMyAccount(selectedAccount.username)}
+                    >
+                      {deletingAccount ? "Deleting account..." : "Delete My Account"}
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Select your own account to manage password.</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Click an account to view details.</p>
+            )}
           </div>
+          ) : null}
         </div>
       </aside>
 

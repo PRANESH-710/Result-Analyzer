@@ -7,11 +7,49 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+async function readApiError(response: Response, fallback: string): Promise<string> {
+  let payload: any = null;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    payload = null;
+  }
+
+  if (payload?.error && typeof payload.error === "string") {
+    return payload.error;
+  }
+
+  if (response.status === 404) {
+    return "Auth route not found. Restart API server and try again.";
+  }
+
+  try {
+    const text = await response.text();
+    if (text && text.trim()) {
+      return text.slice(0, 180);
+    }
+  } catch {
+    // ignore and return fallback
+  }
+
+  return fallback;
+}
+
 export default function Login() {
   const [, setLocation] = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetUsername, setResetUsername] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [isRequestingCode, setIsRequestingCode] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [resetInfo, setResetInfo] = useState<string | null>(null);
 
   const loginMutation = useLogin({
     mutation: {
@@ -29,9 +67,113 @@ export default function Login() {
     }
   });
 
+  const submitRegister = async (normalizedUsername: string, normalizedPassword: string) => {
+    setIsRegistering(true);
+
+    try {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username: normalizedUsername, password: normalizedPassword }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Unable to create account"));
+      }
+
+      setMessage("Account created successfully. Redirecting to dashboard...");
+      setLocation("/");
+    } catch (err: any) {
+      setError(err?.message || "Unable to create account");
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  const requestResetCode = async () => {
+    const normalizedResetUsername = resetUsername.trim();
+    if (!normalizedResetUsername) {
+      setError("Enter username to request reset code");
+      return;
+    }
+
+    setError(null);
+    setResetInfo(null);
+    setIsRequestingCode(true);
+
+    try {
+      const response = await fetch("/api/auth/forgot-password/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username: normalizedResetUsername }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Unable to request reset code"));
+      }
+
+      setResetCode(result?.resetCode ?? "");
+      setResetInfo(
+        `Reset code: ${result?.resetCode ?? ""} (valid for ${Math.floor((result?.expiresInSeconds ?? 0) / 60)} minutes)`,
+      );
+      setMessage("Reset code generated. Use it below to set a new password.");
+    } catch (err: any) {
+      setError(err?.message || "Unable to request reset code");
+    } finally {
+      setIsRequestingCode(false);
+    }
+  };
+
+  const confirmPasswordReset = async () => {
+    const normalizedResetUsername = resetUsername.trim();
+    const normalizedCode = resetCode.trim();
+    const normalizedNewPassword = resetNewPassword.trim();
+
+    if (!normalizedResetUsername || !normalizedCode || !normalizedNewPassword) {
+      setError("Enter username, reset code, and new password");
+      return;
+    }
+
+    setError(null);
+    setIsResettingPassword(true);
+
+    try {
+      const response = await fetch("/api/auth/forgot-password/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          username: normalizedResetUsername,
+          resetCode: normalizedCode,
+          newPassword: normalizedNewPassword,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Unable to reset password"));
+      }
+
+      setResetCode("");
+      setResetNewPassword("");
+      setResetInfo(null);
+      setShowForgotPassword(false);
+      setMode("login");
+      setMessage("Password reset successful. Sign in with your new password.");
+    } catch (err: any) {
+      setError(err?.message || "Unable to reset password");
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setMessage(null);
+    setResetInfo(null);
     const normalizedUsername = username.trim();
     const normalizedPassword = password.trim();
 
@@ -39,10 +181,18 @@ export default function Login() {
       setError("Please enter both username and password");
       return;
     }
+
+    if (mode === "register") {
+      submitRegister(normalizedUsername, normalizedPassword);
+      return;
+    }
+
     loginMutation.mutate({
       data: { username: normalizedUsername, password: normalizedPassword },
     });
   };
+
+  const isBusy = loginMutation.isPending || isRegistering;
 
   return (
     <div className="min-h-screen w-full flex bg-background">
@@ -114,10 +264,39 @@ export default function Login() {
             <CardHeader className="space-y-2 pb-6 sm:pb-8">
               <CardTitle className="text-xl sm:text-2xl text-center">Welcome Back</CardTitle>
               <CardDescription className="text-center text-sm sm:text-base">
-                Sign in to analyze student results
+                {mode === "login"
+                  ? "Sign in to analyze student results"
+                  : "Create an account to access your dashboard"}
               </CardDescription>
             </CardHeader>
             <CardContent>
+              <div className="mb-5 rounded-xl bg-secondary p-1 grid grid-cols-2 gap-1">
+                <Button
+                  type="button"
+                  variant={mode === "login" ? "default" : "ghost"}
+                  onClick={() => {
+                    setMode("login");
+                    setError(null);
+                    setMessage(null);
+                    setShowForgotPassword(false);
+                  }}
+                >
+                  Sign In
+                </Button>
+                <Button
+                  type="button"
+                  variant={mode === "register" ? "default" : "ghost"}
+                  onClick={() => {
+                    setMode("register");
+                    setError(null);
+                    setMessage(null);
+                    setShowForgotPassword(false);
+                  }}
+                >
+                  Create Account
+                </Button>
+              </div>
+
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-foreground/80 pl-1">Username</label>
@@ -125,7 +304,7 @@ export default function Login() {
                     placeholder="Enter your username" 
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    disabled={loginMutation.isPending}
+                    disabled={isBusy}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -135,9 +314,86 @@ export default function Login() {
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    disabled={loginMutation.isPending}
+                    disabled={isBusy}
                   />
+                  {mode === "register" ? (
+                    <p className="text-xs text-muted-foreground pl-1">Use at least 6 characters for password.</p>
+                  ) : null}
                 </div>
+
+                {mode === "login" && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => {
+                        setShowForgotPassword((prev) => !prev);
+                        setError(null);
+                        setMessage(null);
+                        setResetInfo(null);
+                      }}
+                    >
+                      {showForgotPassword ? "Close Forgot Password" : "Forgot Password?"}
+                    </button>
+                  </div>
+                )}
+
+                {showForgotPassword && mode === "login" && (
+                  <div className="space-y-3 rounded-xl border border-border/60 bg-secondary/30 p-3">
+                    <p className="text-sm font-medium">Forgot Password</p>
+                    <Input
+                      placeholder="Username"
+                      value={resetUsername}
+                      onChange={(e) => setResetUsername(e.target.value)}
+                      disabled={isRequestingCode || isResettingPassword}
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={requestResetCode}
+                        disabled={isRequestingCode || isResettingPassword}
+                      >
+                        {isRequestingCode ? "Requesting..." : "Get Reset Code"}
+                      </Button>
+                    </div>
+
+                    <Input
+                      placeholder="Reset code"
+                      value={resetCode}
+                      onChange={(e) => setResetCode(e.target.value)}
+                      disabled={isRequestingCode || isResettingPassword}
+                    />
+                    <Input
+                      type="password"
+                      placeholder="New password"
+                      value={resetNewPassword}
+                      onChange={(e) => setResetNewPassword(e.target.value)}
+                      disabled={isRequestingCode || isResettingPassword}
+                    />
+
+                    {resetInfo ? <p className="text-xs text-emerald-700">{resetInfo}</p> : null}
+
+                    <Button
+                      type="button"
+                      onClick={confirmPasswordReset}
+                      disabled={isRequestingCode || isResettingPassword}
+                      className="w-full"
+                    >
+                      {isResettingPassword ? "Resetting..." : "Confirm Password Reset"}
+                    </Button>
+                  </div>
+                )}
+
+                {message && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="p-3 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl"
+                  >
+                    {message}
+                  </motion.div>
+                )}
                 
                 {error && (
                   <motion.div 
@@ -153,11 +409,11 @@ export default function Login() {
                   type="submit" 
                   className="w-full mt-2" 
                   size="lg"
-                  disabled={loginMutation.isPending}
+                  disabled={isBusy}
                 >
-                  {loginMutation.isPending ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" /> Authenticating...</>
-                  ) : "Sign In"}
+                  {isBusy ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" /> {mode === "login" ? "Authenticating..." : "Creating account..."}</>
+                  ) : mode === "login" ? "Sign In" : "Create Account"}
                 </Button>
               </form>
             </CardContent>

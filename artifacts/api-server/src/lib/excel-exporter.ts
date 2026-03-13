@@ -5,6 +5,19 @@ function setColumnWidths(sheet: XLSX.WorkSheet, widths: number[]): void {
   sheet['!cols'] = widths.map((width) => ({ wch: width }));
 }
 
+function normalizeKey(value: string): string {
+  return value.toLowerCase().trim().replace(/\s+/g, '_').replace(/-/g, '_');
+}
+
+function findHeader(headers: string[], aliases: string[]): string | null {
+  const normalizedMap = new Map(headers.map((header) => [normalizeKey(header), header]));
+  for (const alias of aliases) {
+    const found = normalizedMap.get(alias);
+    if (found) return found;
+  }
+  return null;
+}
+
 export function generateExcelExport(
   analysis: AnalysisResult,
   rawData: Record<string, unknown>[],
@@ -59,9 +72,32 @@ export function generateExcelExport(
 
   // Raw Data Sheet
   if (rawData.length > 0) {
-    const rawSheet = XLSX.utils.json_to_sheet(rawData);
     const rawHeaders = Object.keys(rawData[0] ?? {});
-    const rawColWidths = rawHeaders.map((header) => Math.min(Math.max(header.length + 2, 12), 28));
+    const studentIdHeader = findHeader(rawHeaders, ['student_id', 'studentid', 'reg_no', 'roll_no']);
+    const studentNameHeader = findHeader(rawHeaders, ['student_name', 'studentname', 'name']);
+
+    const orderedHeaders = [
+      ...(studentIdHeader ? [studentIdHeader] : []),
+      ...(studentNameHeader && studentNameHeader !== studentIdHeader ? [studentNameHeader] : []),
+      ...subjectColumns.filter((subject) => rawHeaders.includes(subject)),
+      ...rawHeaders.filter(
+        (header) =>
+          header !== studentIdHeader &&
+          header !== studentNameHeader &&
+          !subjectColumns.includes(header),
+      ),
+    ];
+
+    const rawRows = rawData.map((row) =>
+      orderedHeaders.map((header) => {
+        const value = row[header];
+        return value === undefined || value === null ? '' : value;
+      }),
+    );
+
+    const rawSheet = XLSX.utils.aoa_to_sheet([orderedHeaders, ...rawRows]);
+    rawSheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, orderedHeaders.length - 1) } }) };
+    const rawColWidths = orderedHeaders.map((header) => Math.min(Math.max(header.length + 2, 12), 28));
     setColumnWidths(rawSheet, rawColWidths);
     XLSX.utils.book_append_sheet(workbook, rawSheet, 'Raw Data');
   } else {

@@ -1,130 +1,94 @@
-# Result-Analyzer
-
 # Result-Analyzer (Academic Performance Analyzer)
 
-A full-stack web application for analyzing student examination results from **Excel files**. Upload a spreadsheet and get interactive dashboards, insights, and downloadable reports (Excel/PDF/Markdown).
+A full-stack web application for analyzing student examination results from Excel files. Upload a spreadsheet and get interactive dashboards, insights, and downloadable reports (Excel, PDF, Markdown).
 
----
+## GitHub
+
+- Repository: https://github.com/PRANESH-710/Result-Analyzer
+- Issues: https://github.com/PRANESH-710/Result-Analyzer/issues
 
 ## Features
 
-- **Authentication**
-  - Session-based login (`express-session`)
-  - Credentials via environment variables (`APP_USERNAME`, `APP_PASSWORD`)
-- **Excel result analysis**
-  - Upload Excel files and generate computed performance metrics
-  - Configurable pass percentage threshold, decimal formatting, and student ID toggle
-- **Dashboards & visualizations**
-  - Executive summary cards and overall distributions
-  - Subject performance (pass rates + averages)
-  - Student-level analysis (subjects passed, pass-all vs fail-any)
-  - Top performers (subject toppers + top 10 students)
-  - Advanced charts (heatmap for smaller cohorts, box plots by subject)
-- **Data preview**
-  - Quick table preview of the first rows of the uploaded sheet
-- **Exports**
-  - Download reports as **Excel**, **PDF**, and **Markdown**
-
----
+- Authentication with session-based login (`express-session`)
+- Excel result analysis with configurable pass threshold and formatting
+- Dashboards for subject and student-level performance
+- Data preview for uploaded sheets
+- Report export in Excel, PDF, and Markdown
 
 ## Tech Stack
 
-- **Monorepo**: pnpm workspaces
-- **Language**: TypeScript
-- **Frontend**: React + Vite (UI: shadcn/ui, charts: Recharts, state: Zustand, animations: Framer Motion)
-- **Backend**: Express (session-based auth)
-- **Validation**: Zod / drizzle-zod
-- **Excel parsing**: `xlsx`
-- **API tooling**: OpenAPI + Orval (client + schema generation)
-- **DB layer**: Drizzle ORM (in `/lib/db`)
-
----
+- Monorepo: pnpm workspaces
+- Language: TypeScript
+- Frontend: React + Vite
+- Backend: Express
+- Validation: Zod / drizzle-zod
+- Excel parsing: `xlsx`
+- API tooling: OpenAPI + Orval
+- DB layer: Drizzle ORM
 
 ## Repository Structure
 
 ```text
 artifacts/
-  api-server/         # Express API server (upload/analyze/export)
+  api-server/         # Express API server
   exam-analyzer/      # React + Vite frontend
+  mockup-sandbox/     # UI sandbox
 lib/
   api-spec/           # OpenAPI spec + Orval config
   api-client-react/   # Generated React Query hooks
   api-zod/            # Generated Zod schemas
   db/                 # Drizzle schema + DB connection
 scripts/              # Workspace scripts/utilities
-
-
----
+```
 
 ## API Endpoints
 
-- `POST /api/auth/login` — Login
-- `GET /api/auth/me` — Check auth status
-- `POST /api/auth/logout` — Logout
-- `POST /api/analysis/upload` — Upload Excel & get analysis
-- `POST /api/analysis/export/excel` — Export as Excel
-- `POST /api/analysis/export/pdf` — Export as PDF
-- `POST /api/analysis/export/markdown` — Export as Markdown
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `POST /api/auth/logout`
+- `POST /api/analysis/upload`
+- `POST /api/analysis/export/excel`
+- `POST /api/analysis/export/pdf`
+- `POST /api/analysis/export/markdown`
 
----
-
-## Getting Started (Local)
+## Getting Started
 
 ### Prerequisites
-- **Node.js 24+**
-- **pnpm** (required)
 
-> Note: this repo enforces pnpm usage (install scripts will fail if you use npm/yarn).
+- Node.js 24+
+- pnpm
 
-### Install
-bash
+### Clone and Install
+
+```bash
+git clone https://github.com/PRANESH-710/Result-Analyzer.git
+cd Result-Analyzer
 pnpm install
+```
 
+### Run Development Servers
 
-### Run (development)
-In separate terminals:
-
-**API server**
-bash
+```bash
 pnpm --filter @workspace/api-server dev
-
-
-**Frontend**
-bash
 pnpm --filter @workspace/exam-analyzer dev
-
-
-(If your frontend package name differs, tell me your `artifacts/exam-analyzer/package.json` name and I’ll correct the command.)
-
----
+```
 
 ## Environment Variables
 
-Create a `.env` for the API server (for example under `artifacts/api-server/`):
+Set these for the API server:
 
-- `APP_USERNAME` (default: `admin`)
-- `APP_PASSWORD` (default: `admin123`)
-- `SESSION_SECRET` (has a default, but you should set your own in production)
+- `APP_USERNAME`
+- `APP_PASSWORD`
+- `SESSION_SECRET`
 
 Example:
-env
+
+```env
 APP_USERNAME=admin
 APP_PASSWORD=admin123
 SESSION_SECRET=replace_this_with_a_long_random_string
-
-
----
-
-## Security Notes
-
-- Change the default credentials before deploying.
-- Use a strong `SESSION_SECRET` in production.
-
----
+```
 
 ## License
 
 MIT
-
-
-### One quick question (so I can make it 100% accurate)

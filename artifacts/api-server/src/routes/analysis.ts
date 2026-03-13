@@ -1,8 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
 import multer from 'multer';
+import { and, desc, eq } from 'drizzle-orm';
+import { db } from '@workspace/db';
+import { analysisHistoryTable } from '@workspace/db/schema';
 import { parseExcelBuffer } from '../lib/excel-parser.js';
 import { validateData, analyzeResults, getSubjectCols } from '../lib/analysis.js';
-import { generateMarkdownReport } from '../lib/report-generator.js';
+import { generateMarkdownReport, generatePdfReport } from '../lib/report-generator.js';
 import { generateExcelExport } from '../lib/excel-exporter.js';
 
 const router: IRouter = Router();
@@ -15,7 +18,7 @@ function parseSubjectPassPercentages(value: unknown): Record<string, number> | u
 
   try {
     const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, number> : undefined;
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, number>) : undefined;
   } catch {
     return undefined;
   }
@@ -29,7 +32,11 @@ function requireAuth(req: Request, res: Response): boolean {
   return true;
 }
 
-router.post('/upload', upload.single('file'), (req: Request, res: Response) => {
+function getSessionUsername(req: Request): string {
+  return String((req.session as any).username ?? '');
+}
+
+router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
   if (!requireAuth(req, res)) return;
 
   if (!req.file) {
@@ -57,8 +64,21 @@ router.post('/upload', upload.single('file'), (req: Request, res: Response) => {
 
     const subjectColumns = getSubjectCols(columns);
     const analysis = analyzeResults(rows, columns, passPercentage, subjectPassPercentages);
+    const payload = { validation, analysis, rawData: rows, columns, subjectColumns };
 
-    res.json({ validation, analysis, rawData: rows, columns, subjectColumns });
+    try {
+      await db.insert(analysisHistoryTable).values({
+        ownerUsername: getSessionUsername(req),
+        name: req.file.originalname,
+        passPercentage: Math.round(analysis?.passPercentage ?? passPercentage),
+        subjectPassPercentages: analysis?.subjectPassPercentages ?? subjectPassPercentages ?? {},
+        analysisData: payload,
+      });
+    } catch (error) {
+      console.error('Failed to persist analysis history', error);
+    }
+
+    res.json(payload);
   } catch (err: any) {
     res.status(400).json({ error: `Failed to process file: ${err.message}` });
   }
@@ -72,7 +92,7 @@ router.post('/reanalyze', (req: Request, res: Response) => {
   const passPercentage = parseFloat(req.body?.passPercentage) || 40;
   const subjectPassPercentages =
     req.body?.subjectPassPercentages && typeof req.body.subjectPassPercentages === 'object'
-      ? req.body.subjectPassPercentages as Record<string, number>
+      ? (req.body.subjectPassPercentages as Record<string, number>)
       : undefined;
 
   if (rawData.length === 0 || columns.length === 0) {
@@ -130,7 +150,7 @@ router.post('/export/markdown', (req: Request, res: Response) => {
   }
 });
 
-router.post('/export/pdf', (req: Request, res: Response) => {
+router.post('/export/pdf', async (req: Request, res: Response) => {
   if (!requireAuth(req, res)) return;
 
   const { analysisData, showStudentIds } = req.body;
@@ -140,72 +160,67 @@ router.post('/export/pdf', (req: Request, res: Response) => {
   }
 
   try {
-    // Generate markdown and convert to a simple HTML-based PDF via a plaintext report
-    const markdown = generateMarkdownReport(analysisData, !!showStudentIds);
-    // For PDF, we return a text/plain fallback since we don't have a heavy PDF lib on server
-    // The frontend can handle conversion or we return the markdown as PDF placeholder
+    const buffer = await generatePdfReport(analysisData, !!showStudentIds);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="examination_analysis.pdf"');
-    // Create a minimal PDF manually
-    const pdfContent = createSimplePdf(markdown);
-    res.send(pdfContent);
+    res.send(buffer);
   } catch (err: any) {
     res.status(500).json({ error: `Export failed: ${err.message}` });
   }
 });
 
-function createSimplePdf(markdown: string): Buffer {
-  const lines = markdown
-    .split('\n')
-    .map((line) =>
-      line
-        .replace(/\|/g, ' ')
-        .replace(/\*\*/g, '')
-        .replace(/`/g, '')
-        .replace(/^#+\s*/g, '')
-        .trim()
-    )
-    .filter((line) => line.length > 0);
+router.get('/history', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
 
-  const pdfTextLines = lines.slice(0, 180);
-  let yPos = 760;
-  const textOps: string[] = ['BT', '/F1 11 Tf'];
+  const username = getSessionUsername(req);
+  const rows = await db
+    .select()
+    .from(analysisHistoryTable)
+    .where(eq(analysisHistoryTable.ownerUsername, username))
+    .orderBy(desc(analysisHistoryTable.createdAt))
+    .limit(100);
 
-  for (const line of pdfTextLines) {
-    const printable = line.substring(0, 95).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-    textOps.push(`1 0 0 1 44 ${yPos} Tm (${printable}) Tj`);
-    yPos -= 14;
-    if (yPos < 40) break;
-  }
-  textOps.push('ET');
+  res.json({
+    items: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      createdAt: row.createdAt,
+      passPercentage: row.passPercentage,
+      subjectPassPercentages: row.subjectPassPercentages,
+      analysisData: row.analysisData,
+    })),
+  });
+});
 
-  const contentStream = `${textOps.join('\n')}\n`;
+router.delete('/history/:id', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
 
-  const objects: string[] = [
-    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
-    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
-    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n',
-    `4 0 obj\n<< /Length ${Buffer.byteLength(contentStream, 'utf-8')} >>\nstream\n${contentStream}endstream\nendobj\n`,
-    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
-  ];
-
-  let pdf = '%PDF-1.4\n';
-  const offsets: number[] = [0];
-
-  for (const obj of objects) {
-    offsets.push(Buffer.byteLength(pdf, 'utf-8'));
-    pdf += obj;
+  const id = Number(req.params.id);
+  if (Number.isNaN(id) || id <= 0) {
+    res.status(400).json({ error: 'Invalid history id.' });
+    return;
   }
 
-  const xrefStart = Buffer.byteLength(pdf, 'utf-8');
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += '0000000000 65535 f \n';
-  for (let i = 1; i <= objects.length; i += 1) {
-    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  const username = getSessionUsername(req);
+  const deleted = await db
+    .delete(analysisHistoryTable)
+    .where(and(eq(analysisHistoryTable.id, id), eq(analysisHistoryTable.ownerUsername, username)))
+    .returning({ id: analysisHistoryTable.id });
+
+  if (deleted.length === 0) {
+    res.status(404).json({ error: 'History item not found.' });
+    return;
   }
 
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-  return Buffer.from(pdf, 'utf-8');
-}
+  res.json({ success: true });
+});
+
+router.delete('/history', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+
+  const username = getSessionUsername(req);
+  await db.delete(analysisHistoryTable).where(eq(analysisHistoryTable.ownerUsername, username));
+  res.json({ success: true });
+});
 
 export default router;

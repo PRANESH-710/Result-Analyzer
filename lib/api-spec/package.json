@@ -2,6 +2,14 @@
   "name": "@workspace/api-spec",
   "version": "0.0.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PRANESH-710/Result-Analyzer.git"
+  },
+  "homepage": "https://github.com/PRANESH-710/Result-Analyzer#readme",
+  "bugs": {
+    "url": "https://github.com/PRANESH-710/Result-Analyzer/issues"
+  },
   "scripts": {
     "codegen": "orval --config ./orval.config.ts"
   },

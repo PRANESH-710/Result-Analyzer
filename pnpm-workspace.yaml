@@ -5,6 +5,11 @@ packages:
   - scripts
 
 autoInstallPeers: false
+strictPeerDependencies: false
+publicHoistPattern:
+  - '@rollup/rollup-*'
+  - '@tailwindcss/oxide-*'
+  - 'lightningcss-*'
 
 catalog:
   '@replit/vite-plugin-cartographer': ^0.5.0

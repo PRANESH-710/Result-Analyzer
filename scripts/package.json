@@ -3,6 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PRANESH-710/Result-Analyzer.git"
+  },
+  "homepage": "https://github.com/PRANESH-710/Result-Analyzer#readme",
+  "bugs": {
+    "url": "https://github.com/PRANESH-710/Result-Analyzer/issues"
+  },
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"

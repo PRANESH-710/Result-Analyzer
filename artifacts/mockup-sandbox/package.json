@@ -3,6 +3,14 @@
   "version": "2.0.0",
   "type": "module",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PRANESH-710/Result-Analyzer.git"
+  },
+  "homepage": "https://github.com/PRANESH-710/Result-Analyzer#readme",
+  "bugs": {
+    "url": "https://github.com/PRANESH-710/Result-Analyzer/issues"
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

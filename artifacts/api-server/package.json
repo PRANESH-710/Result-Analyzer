@@ -3,6 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PRANESH-710/Result-Analyzer.git"
+  },
+  "homepage": "https://github.com/PRANESH-710/Result-Analyzer#readme",
+  "bugs": {
+    "url": "https://github.com/PRANESH-710/Result-Analyzer/issues"
+  },
   "scripts": {
     "dev": "tsx ./src/index.ts",
     "build": "tsx ./build.ts",
@@ -15,16 +23,19 @@
     "@workspace/db": "workspace:*",
     "cookie-parser": "^1.4.7",
     "cors": "^2",
+    "dotenv": "^16.6.1",
     "drizzle-orm": "catalog:",
     "express": "^5",
     "express-session": "^1.19.0",
     "multer": "^2.1.1",
+    "pdfkit": "^0.17.2",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/pdfkit": "^0.17.3",
     "@types/node": "catalog:",
     "esbuild": "^0.27.3",
     "tsx": "catalog:"

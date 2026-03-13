@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <clipPath id="circleClip">
+      <circle cx="128" cy="128" r="116" />
+    </clipPath>
+  </defs>
+  <rect width="256" height="256" rx="128" ry="128" fill="#ffffff" />
+  <image
+    href="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQc6GIru7WmiijlJ4ea7YUlwkr9PQYfTeOBUMuip8ufuH50yctQ6mX7i4s&s"
+    x="12"
+    y="12"
+    width="232"
+    height="232"
+    preserveAspectRatio="xMidYMid slice"
+    clip-path="url(#circleClip)"
+  />
+</svg>

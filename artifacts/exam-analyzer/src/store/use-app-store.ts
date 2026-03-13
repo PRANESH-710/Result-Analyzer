@@ -34,6 +34,7 @@ interface AppState {
   setAnalysisData: (data: AnalysisResponse | null) => void;
   analysisHistory: AnalysisHistoryItem[];
   activeHistoryId: string | null;
+  setAnalysisHistory: (items: AnalysisHistoryItem[]) => void;
   addAnalysisToHistory: (entry: {
     name: string;
     analysisData: AnalysisResponse;
@@ -66,6 +67,14 @@ export const useAppStore = create<AppState>()(
       setAnalysisData: (data) => set({ analysisData: data }),
       analysisHistory: [],
       activeHistoryId: null,
+      setAnalysisHistory: (items) =>
+        set((state) => ({
+          analysisHistory: items.slice(0, MAX_HISTORY_ITEMS),
+          activeHistoryId:
+            state.activeHistoryId && items.some((item) => item.id === state.activeHistoryId)
+              ? state.activeHistoryId
+              : null,
+        })),
       addAnalysisToHistory: ({ name, analysisData, passPercentage, subjectPassPercentages }) =>
         set((state) => {
           const id = createHistoryId();
@@ -129,11 +138,9 @@ export const useAppStore = create<AppState>()(
       clearAnalysis: () => set({ analysisData: null, subjectPassPercentages: {} }),
     }),
     {
-      name: 'exam-analyzer-result-history-v1',
+      name: 'exam-analyzer-session-v2',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        analysisHistory: state.analysisHistory,
-      }),
+      partialize: () => ({}),
     },
   ),
 );

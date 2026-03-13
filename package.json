@@ -2,6 +2,14 @@
   "name": "workspace",
   "version": "0.0.0",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PRANESH-710/Result-Analyzer.git"
+  },
+  "homepage": "https://github.com/PRANESH-710/Result-Analyzer#readme",
+  "bugs": {
+    "url": "https://github.com/PRANESH-710/Result-Analyzer/issues"
+  },
   "scripts": {
     "preinstall": "node -e \"const fs=require('fs'); ['package-lock.json','yarn.lock'].forEach((f)=>{if(fs.existsSync(f)) fs.rmSync(f,{force:true});}); const ua=process.env.npm_config_user_agent||''; if(!ua.startsWith('pnpm/')){console.error('Use pnpm instead'); process.exit(1);}\"",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
