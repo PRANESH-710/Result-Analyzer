@@ -1,93 +1,135 @@
-# Result-Analyzer (Academic Performance Analyzer)
+# Code-Analyzer
 
-A full-stack web application for analyzing student examination results from Excel files. Upload a spreadsheet and get interactive dashboards, insights, and downloadable reports (Excel, PDF, Markdown).
+Code-Analyzer is a pnpm monorepo for analyzing exam result spreadsheets.
+It includes a React dashboard, an Express API, and shared libraries for schema, API clients, and database access.
 
-## GitHub
+## What It Does
 
-- Repository: https://github.com/PRANESH-710/Result-Analyzer
-- Issues: https://github.com/PRANESH-710/Result-Analyzer/issues
+- Upload Excel files (`.xlsx`, `.xls`) and validate exam data
+- Compute class insights with configurable pass percentage (global or subject-wise)
+- Show student and subject performance in an interactive dashboard
+- Export analysis reports in Excel, PDF, and Markdown
+- Keep per-user analysis history
 
-## Features
-
-- Authentication with session-based login (`express-session`)
-- Excel result analysis with configurable pass threshold and formatting
-- Dashboards for subject and student-level performance
-- Data preview for uploaded sheets
-- Report export in Excel, PDF, and Markdown
-
-## Tech Stack
-
-- Monorepo: pnpm workspaces
-- Language: TypeScript
-- Frontend: React + Vite
-- Backend: Express
-- Validation: Zod / drizzle-zod
-- Excel parsing: `xlsx`
-- API tooling: OpenAPI + Orval
-- DB layer: Drizzle ORM
-
-## Repository Structure
+## Monorepo Layout
 
 ```text
 artifacts/
-  api-server/         # Express API server
-  exam-analyzer/      # React + Vite frontend
-  mockup-sandbox/     # UI sandbox
+  api-server/         Express API server
+  exam-analyzer/      Main React + Vite frontend
+  mockup-sandbox/     UI sandbox for mockups/components
+
 lib/
-  api-spec/           # OpenAPI spec + Orval config
-  api-client-react/   # Generated React Query hooks
-  api-zod/            # Generated Zod schemas
-  db/                 # Drizzle schema + DB connection
-scripts/              # Workspace scripts/utilities
+  api-spec/           OpenAPI spec + Orval config
+  api-client-react/   Generated React API client
+  api-zod/            Generated Zod schemas
+  db/                 Drizzle database connection + schema
+
+scripts/              Workspace utility scripts
 ```
 
-## API Endpoints
+## Stack
 
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `POST /api/auth/logout`
-- `POST /api/analysis/upload`
-- `POST /api/analysis/export/excel`
-- `POST /api/analysis/export/pdf`
-- `POST /api/analysis/export/markdown`
+- TypeScript (workspace-wide)
+- Frontend: React + Vite
+- Backend: Express + multer + express-session
+- Database: PostgreSQL + Drizzle ORM
+- API contracts: OpenAPI + Orval + Zod
+- Excel handling: xlsx
 
-## Getting Started
-
-### Prerequisites
+## Prerequisites
 
 - Node.js 24+
-- pnpm
+- pnpm (required)
+- PostgreSQL database
 
-### Clone and Install
+## Quick Start
+
+1. Install dependencies
 
 ```bash
-git clone https://github.com/PRANESH-710/Result-Analyzer.git
-cd Result-Analyzer
 pnpm install
 ```
 
-### Run Development Servers
+2. Create `.env` in the project root
+
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/code_analyzer
+SESSION_SECRET=replace_with_a_long_random_secret
+APP_USERNAME=admin
+APP_PASSWORD=admin123
+PORT=3001
+```
+
+3. Start API server
 
 ```bash
 pnpm --filter @workspace/api-server dev
+```
+
+4. Start frontend (new terminal)
+
+```bash
 pnpm --filter @workspace/exam-analyzer dev
 ```
 
-## Environment Variables
+5. Open app
 
-Set these for the API server:
+- Frontend: http://localhost:5173
+- API: http://localhost:3001
 
-- `APP_USERNAME`
-- `APP_PASSWORD`
-- `SESSION_SECRET`
+## Workspace Scripts
 
-Example:
+Run from repository root:
 
-```env
-APP_USERNAME=admin
-APP_PASSWORD=admin123
-SESSION_SECRET=replace_this_with_a_long_random_string
+```bash
+pnpm run typecheck
+pnpm run build
 ```
+
+Package-level examples:
+
+```bash
+pnpm --filter @workspace/api-server typecheck
+pnpm --filter @workspace/exam-analyzer typecheck
+pnpm --filter @workspace/mockup-sandbox dev
+```
+
+## API Overview
+
+Auth routes:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `POST /api/auth/change-password`
+- `POST /api/auth/forgot-password/request`
+- `POST /api/auth/forgot-password/confirm`
+- `GET /api/auth/accounts`
+- `DELETE /api/auth/accounts/:username`
+
+Analysis routes:
+
+- `POST /api/analysis/upload`
+- `POST /api/analysis/reanalyze`
+- `POST /api/analysis/export/excel`
+- `POST /api/analysis/export/pdf`
+- `POST /api/analysis/export/markdown`
+- `GET /api/analysis/history`
+- `DELETE /api/analysis/history/:id`
+- `DELETE /api/analysis/history`
+
+## Notes
+
+- CORS is configured with `origin: true` and `credentials: true` in development.
+- Session auth uses `express-session` and stores the username in session.
+- API server requires `DATABASE_URL` at startup.
+
+## Repository
+
+- Repository: https://github.com/PRANESH-710/Result-Analyzer
+- Issues: https://github.com/PRANESH-710/Result-Analyzer/issues
 
 ## License
 
