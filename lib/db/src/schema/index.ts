@@ -1,9 +1,12 @@
-import { integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 
 export const usersTable = pgTable("users", {
 	id: serial("id").primaryKey(),
 	username: text("username").notNull(),
 	usernameKey: text("username_key").notNull().unique(),
+	email: text("email"),
+	emailKey: text("email_key").unique(),
+	isEmailVerified: boolean("is_email_verified").notNull().default(true),
 	passwordHash: text("password_hash").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
