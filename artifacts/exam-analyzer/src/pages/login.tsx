@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Loader2, Activity, ShieldCheck, FileSpreadsheet } from "lucide-react";
+import { Loader2, Activity, ShieldCheck, FileSpreadsheet, Eye, EyeOff } from "lucide-react";
 import { useLogin } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +38,9 @@ async function readApiError(response: Response, fallback: string): Promise<strin
 export default function Login() {
   const [, setLocation] = useLocation();
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +49,7 @@ export default function Login() {
   const [resetUsername, setResetUsername] = useState("");
   const [resetCode, setResetCode] = useState("");
   const [resetNewPassword, setResetNewPassword] = useState("");
+  const [showResetNewPassword, setShowResetNewPassword] = useState(false);
   const [isRequestingCode, setIsRequestingCode] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [resetInfo, setResetInfo] = useState<string | null>(null);
@@ -57,17 +60,28 @@ export default function Login() {
         setLocation("/");
       },
       onError: (err: any) => {
-        setError(
+        // Keep sign-in failures concise and avoid showing unrelated helper text.
+        const rawError =
           err?.data?.error ||
-            err?.response?.data?.error ||
-            err?.message ||
-            "Invalid credentials",
-        );
+          err?.response?.data?.error ||
+          err?.message ||
+          "Invalid credentials";
+
+        if (mode === "login") {
+          setError("Invalid user");
+          return;
+        }
+
+        setError(rawError);
       }
     }
   });
 
-  const submitRegister = async (normalizedUsername: string, normalizedPassword: string) => {
+  const submitRegister = async (
+    normalizedUsername: string,
+    normalizedEmail: string,
+    normalizedPassword: string,
+  ) => {
     setIsRegistering(true);
 
     try {
@@ -75,7 +89,11 @@ export default function Login() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ username: normalizedUsername, password: normalizedPassword }),
+        body: JSON.stringify({
+          username: normalizedUsername,
+          email: normalizedEmail,
+          password: normalizedPassword,
+        }),
       });
 
       if (!response.ok) {
@@ -174,16 +192,23 @@ export default function Login() {
     setError(null);
     setMessage(null);
     setResetInfo(null);
+
     const normalizedUsername = username.trim();
+    const normalizedEmail = email.trim();
     const normalizedPassword = password.trim();
 
     if (!normalizedUsername || !normalizedPassword) {
-      setError("Please enter both username and password");
+      setError("Please enter both username/email and password");
       return;
     }
 
     if (mode === "register") {
-      submitRegister(normalizedUsername, normalizedPassword);
+      if (!normalizedEmail) {
+        setError("Please enter your email");
+        return;
+      }
+
+      submitRegister(normalizedUsername, normalizedEmail, normalizedPassword);
       return;
     }
 
@@ -276,6 +301,8 @@ export default function Login() {
                   variant={mode === "login" ? "default" : "ghost"}
                   onClick={() => {
                     setMode("login");
+                    setUsername("");
+                    setPassword("");
                     setError(null);
                     setMessage(null);
                     setShowForgotPassword(false);
@@ -288,6 +315,9 @@ export default function Login() {
                   variant={mode === "register" ? "default" : "ghost"}
                   onClick={() => {
                     setMode("register");
+                    setUsername("");
+                    setPassword("");
+                    setEmail("");
                     setError(null);
                     setMessage(null);
                     setShowForgotPassword(false);
@@ -298,28 +328,56 @@ export default function Login() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-5">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-foreground/80 pl-1">Username</label>
-                  <Input 
-                    placeholder="Enter your username" 
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    disabled={isBusy}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-foreground/80 pl-1">Password</label>
-                  <Input 
-                    type="password" 
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={isBusy}
-                  />
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground/80 pl-1">
+                      {mode === "login" ? "Username or Email" : "Username"}
+                    </label>
+                    <Input
+                      placeholder={mode === "login" ? "Enter username or email" : "Enter your username"}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      disabled={isBusy}
+                    />
+                  </div>
                   {mode === "register" ? (
-                    <p className="text-xs text-muted-foreground pl-1">Use at least 6 characters for password.</p>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-foreground/80 pl-1">Email</label>
+                      <Input
+                        type="email"
+                        placeholder="Enter your email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        disabled={isBusy}
+                      />
+                    </div>
                   ) : null}
-                </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground/80 pl-1">Password</label>
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        disabled={isBusy}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        disabled={isBusy}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {mode === "register" ? (
+                      <p className="text-xs text-muted-foreground pl-1">Use at least 6 characters for password.</p>
+                    ) : null}
+                  </div>
+                </>
 
                 {mode === "login" && (
                   <div className="flex justify-end">
@@ -342,7 +400,7 @@ export default function Login() {
                   <div className="space-y-3 rounded-xl border border-border/60 bg-secondary/30 p-3">
                     <p className="text-sm font-medium">Forgot Password</p>
                     <Input
-                      placeholder="Username"
+                      placeholder="Username or Email"
                       value={resetUsername}
                       onChange={(e) => setResetUsername(e.target.value)}
                       disabled={isRequestingCode || isResettingPassword}
@@ -364,13 +422,25 @@ export default function Login() {
                       onChange={(e) => setResetCode(e.target.value)}
                       disabled={isRequestingCode || isResettingPassword}
                     />
-                    <Input
-                      type="password"
-                      placeholder="New password"
-                      value={resetNewPassword}
-                      onChange={(e) => setResetNewPassword(e.target.value)}
-                      disabled={isRequestingCode || isResettingPassword}
-                    />
+                    <div className="relative">
+                      <Input
+                        type={showResetNewPassword ? "text" : "password"}
+                        placeholder="New password"
+                        value={resetNewPassword}
+                        onChange={(e) => setResetNewPassword(e.target.value)}
+                        disabled={isRequestingCode || isResettingPassword}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowResetNewPassword((prev) => !prev)}
+                        aria-label={showResetNewPassword ? "Hide new password" : "Show new password"}
+                        disabled={isRequestingCode || isResettingPassword}
+                      >
+                        {showResetNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
 
                     {resetInfo ? <p className="text-xs text-emerald-700">{resetInfo}</p> : null}
 
@@ -412,7 +482,12 @@ export default function Login() {
                   disabled={isBusy}
                 >
                   {isBusy ? (
-                    <><Loader2 className="w-5 h-5 animate-spin" /> {mode === "login" ? "Authenticating..." : "Creating account..."}</>
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      {mode === "login"
+                        ? "Authenticating..."
+                        : "Creating account..."}
+                    </>
                   ) : mode === "login" ? "Sign In" : "Create Account"}
                 </Button>
               </form>

@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from 'express';
 import crypto from 'crypto';
-import { and, eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '@workspace/db';
 import { usersTable } from '@workspace/db/schema';
 
@@ -10,9 +10,34 @@ const APP_USERNAME = process.env.APP_USERNAME || 'admin';
 const APP_PASSWORD = process.env.APP_PASSWORD || 'admin123';
 const PASSWORD_RESET_TTL_MS = 10 * 60 * 1000;
 const passwordResetMap = new Map<string, { code: string; expiresAt: number }>();
+let authSchemaReady: Promise<void> | null = null;
+
+async function ensureAuthSchema(): Promise<void> {
+  if (!authSchemaReady) {
+    authSchemaReady = (async () => {
+      await db.execute(sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email" text`);
+      await db.execute(sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "email_key" text`);
+      await db.execute(sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "is_email_verified" boolean NOT NULL DEFAULT true`);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "users_email_key_unique_idx" ON "users" ("email_key")`);
+      await db.execute(sql`UPDATE "users" SET "email" = "username_key" || '@local.invalid' WHERE "email" IS NULL`);
+      await db.execute(sql`UPDATE "users" SET "email_key" = lower("email") WHERE "email_key" IS NULL AND "email" IS NOT NULL`);
+      await db.execute(sql`UPDATE "users" SET "is_email_verified" = true WHERE "is_email_verified" IS NULL`);
+    })();
+  }
+
+  await authSchemaReady;
+}
 
 function normalizeUsernameKey(username: string): string {
   return username.trim().toLowerCase();
+}
+
+function normalizeEmailKey(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 function hashPassword(password: string): string {
@@ -39,10 +64,28 @@ function verifyPassword(password: string, storedHash: string): boolean {
   return crypto.timingSafeEqual(expectedBuffer, candidateBuffer);
 }
 
-async function findLocalUser(username: string) {
+async function findLocalUserByUsername(username: string) {
+  await ensureAuthSchema();
   const usernameKey = normalizeUsernameKey(username);
   const rows = await db.select().from(usersTable).where(eq(usersTable.usernameKey, usernameKey)).limit(1);
   return rows[0] ?? null;
+}
+
+async function findLocalUserByEmail(email: string) {
+  await ensureAuthSchema();
+  const emailKey = normalizeEmailKey(email);
+  const rows = await db.select().from(usersTable).where(eq(usersTable.emailKey, emailKey)).limit(1);
+  return rows[0] ?? null;
+}
+
+async function findLocalUserByIdentifier(identifier: string) {
+  const trimmed = identifier.trim();
+
+  if (trimmed.includes('@')) {
+    return findLocalUserByEmail(trimmed);
+  }
+
+  return findLocalUserByUsername(trimmed);
 }
 
 function generateResetCode(): string {
@@ -52,12 +95,14 @@ function generateResetCode(): string {
 router.post('/register', async (req: Request, res: Response) => {
   const rawUsername = req.body?.username;
   const rawPassword = req.body?.password;
+  const rawEmail = req.body?.email;
 
   const username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
   const password = typeof rawPassword === 'string' ? rawPassword.trim() : '';
+  const email = typeof rawEmail === 'string' ? rawEmail.trim() : '';
 
-  if (!username || !password) {
-    res.status(400).json({ error: 'Username and password are required.' });
+  if (!username || !password || !email) {
+    res.status(400).json({ error: 'Username, email, and password are required.' });
     return;
   }
 
@@ -71,7 +116,13 @@ router.post('/register', async (req: Request, res: Response) => {
     return;
   }
 
+  if (!isValidEmail(email)) {
+    res.status(400).json({ error: 'Enter a valid email address.' });
+    return;
+  }
+
   const usernameKey = normalizeUsernameKey(username);
+  const emailKey = normalizeEmailKey(email);
 
   if (usernameKey === normalizeUsernameKey(APP_USERNAME)) {
     res.status(409).json({ error: 'Username is reserved. Choose another username.' });
@@ -79,9 +130,15 @@ router.post('/register', async (req: Request, res: Response) => {
   }
 
   try {
-    const existingUser = await findLocalUser(username);
+    const existingUser = await findLocalUserByUsername(username);
     if (existingUser) {
       res.status(409).json({ error: 'Username already exists.' });
+      return;
+    }
+
+    const existingEmail = await findLocalUserByEmail(email);
+    if (existingEmail) {
+      res.status(409).json({ error: 'Email already exists.' });
       return;
     }
 
@@ -90,6 +147,9 @@ router.post('/register', async (req: Request, res: Response) => {
       .values({
         username: username.trim(),
         usernameKey,
+        email: email.trim(),
+        emailKey,
+        isEmailVerified: true,
         passwordHash: hashPassword(password),
       })
       .returning();
@@ -100,6 +160,7 @@ router.post('/register', async (req: Request, res: Response) => {
     res.status(201).json({
       success: true,
       username: user.username,
+      email: user.email,
       authenticated: true,
       createdAt: user.createdAt,
       accountSource: 'local',
@@ -125,7 +186,7 @@ router.post('/forgot-password/request', async (req: Request, res: Response) => {
     return;
   }
 
-  const user = await findLocalUser(username);
+  const user = await findLocalUserByIdentifier(username);
   if (!user) {
     res.status(404).json({ error: 'Account not found.' });
     return;
@@ -162,7 +223,7 @@ router.post('/forgot-password/confirm', async (req: Request, res: Response) => {
     return;
   }
 
-  const user = await findLocalUser(username);
+  const user = await findLocalUserByIdentifier(username);
   if (!user) {
     res.status(404).json({ error: 'Account not found.' });
     return;
@@ -206,7 +267,7 @@ router.post('/login', async (req: Request, res: Response) => {
     return;
   }
 
-  const localUser = await findLocalUser(username);
+  const localUser = await findLocalUserByIdentifier(username);
 
   if (localUser && verifyPassword(password, localUser.passwordHash)) {
     (req.session as any).username = localUser.username;
@@ -237,11 +298,13 @@ router.get('/me', async (req: Request, res: Response) => {
     return;
   }
 
-  const localUser = await findLocalUser(username);
+  const localUser = await findLocalUserByUsername(username);
   const isEnvUser = username === APP_USERNAME;
 
   res.json({
     username,
+    email: localUser?.email ?? null,
+    emailVerified: localUser?.isEmailVerified ?? true,
     authenticated: true,
     createdAt: localUser?.createdAt,
     accountSource: localUser ? 'local' : isEnvUser ? 'env' : 'unknown',
@@ -255,10 +318,10 @@ router.get('/accounts', async (req: Request, res: Response) => {
     return;
   }
 
-  const localUser = await findLocalUser(sessionUsername);
+  const localUser = await findLocalUserByUsername(sessionUsername);
   const users = localUser
-    ? [{ username: localUser.username, createdAt: localUser.createdAt }]
-    : [{ username: sessionUsername, createdAt: null as any }];
+    ? [{ username: localUser.username, email: localUser.email, createdAt: localUser.createdAt }]
+    : [{ username: sessionUsername, email: null, createdAt: null as any }];
 
   res.json({
     count: users.length,
@@ -289,7 +352,7 @@ router.post('/change-password', async (req: Request, res: Response) => {
     return;
   }
 
-  const localUser = await findLocalUser(sessionUsername);
+  const localUser = await findLocalUserByUsername(sessionUsername);
   const isValidLocalPassword = localUser ? verifyPassword(currentPassword, localUser.passwordHash) : false;
 
   if (!isValidLocalPassword) {
@@ -340,7 +403,7 @@ router.delete('/accounts/:username', async (req: Request, res: Response) => {
     return;
   }
 
-  const targetUser = await findLocalUser(targetUsername);
+  const targetUser = await findLocalUserByUsername(targetUsername);
   if (!targetUser) {
     res.status(404).json({ error: 'Account not found.' });
     return;
