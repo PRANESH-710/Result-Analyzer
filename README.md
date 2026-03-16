@@ -37,6 +37,40 @@ scripts/              Workspace utility scripts
 - API contracts: OpenAPI + Orval + Zod
 - Excel handling: xlsx
 
+## Frontend CSS And UI Stack
+
+The main frontend app (`artifacts/exam-analyzer`) uses a utility-first styling system with component primitives.
+
+- Tailwind CSS v4 via `@import "tailwindcss"` in `src/index.css`
+- Tailwind plugins:
+  - `tailwindcss-animate`
+  - `@tailwindcss/typography`
+- CSS variable-based design tokens for:
+  - app colors (`--background`, `--foreground`, `--primary`, etc.)
+  - chart colors (`--chart-1` ... `--chart-5`)
+  - sidebar colors
+  - radius scale (`--radius-sm` ... `--radius-xl`)
+- Typography:
+  - Google Fonts: DM Sans (body), Outfit (headings)
+  - body uses `--font-sans`, headings use `--font-display`
+- Component system:
+  - shadcn/ui configuration (`new-york` style) with CSS variables enabled
+  - Radix UI primitives (`@radix-ui/*`) for accessible building blocks
+- Utility helpers:
+  - `class-variance-authority`, `clsx`, `tailwind-merge`
+- Motion and interaction:
+  - `framer-motion`
+  - `tailwindcss-animate`
+- Additional visual behavior in global CSS:
+  - subtle radial background texture
+  - custom WebKit scrollbar styling
+
+Reference files:
+
+- `artifacts/exam-analyzer/src/index.css`
+- `artifacts/exam-analyzer/components.json`
+- `artifacts/exam-analyzer/package.json`
+
 ## Prerequisites
 
 - Node.js 24+
