@@ -128,8 +128,9 @@ export default function Dashboard() {
     selectedAccountUsername
       ? accounts.find((account) => account.username === selectedAccountUsername) ?? null
       : null;
+  const currentUsername = user?.username ?? "";
   const isSelectedCurrentUser =
-    !!selectedAccount && selectedAccount.username.toLowerCase() === user.username.toLowerCase();
+    !!selectedAccount && !!currentUsername && selectedAccount.username.toLowerCase() === currentUsername.toLowerCase();
 
   useEffect(() => {
     if (authError || (user && !user.authenticated)) {
@@ -419,7 +420,7 @@ export default function Dashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ username: user.username }),
+        body: JSON.stringify({ username: currentUsername }),
       });
 
       const result = await response.json().catch(() => ({}));
@@ -454,7 +455,7 @@ export default function Dashboard() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          username: user.username,
+          username: currentUsername,
           resetCode: forgotCode.trim(),
           newPassword: forgotNewPassword.trim(),
         }),
